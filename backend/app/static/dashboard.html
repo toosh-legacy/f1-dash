@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>F1 Live Prediction Dashboard</title>
+<style>
+  :root {
+    --bg: #0d0f14;
+    --panel: #161a23;
+    --panel-2: #1d222d;
+    --line: #2a3040;
+    --text: #e8ecf4;
+    --muted: #8b95ab;
+    --accent: #e4002b;
+    --ok: #35d07f;
+    --warn: #ffb020;
+    --gated: #ff5c5c;
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); }
+  header {
+    display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+    padding: 1rem 1.5rem; background: var(--panel); border-bottom: 2px solid var(--accent);
+  }
+  h1 { font-size: 1.1rem; margin: 0; letter-spacing: .08em; text-transform: uppercase; }
+  .regime { font-size: .75rem; color: var(--muted); border: 1px solid var(--line); padding: .15rem .5rem; border-radius: 999px; }
+  .spacer { flex: 1; }
+  select, button, input {
+    background: var(--panel-2); color: var(--text); border: 1px solid var(--line);
+    padding: .45rem .7rem; border-radius: 6px; font-size: .85rem;
+  }
+  button { cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  .status { display: flex; align-items: center; gap: .45rem; font-size: .8rem; color: var(--muted); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.live { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .dot.error { background: var(--gated); }
+  main { padding: 1.25rem 1.5rem 3rem; display: grid; gap: 1.25rem; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  section > h2 {
+    margin: 0; padding: .75rem 1rem; font-size: .8rem; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--muted); background: var(--panel-2);
+    border-bottom: 1px solid var(--line); display: flex; gap: .6rem; align-items: center;
+  }
+  .banner {
+    display: none; padding: .6rem 1rem; font-size: .85rem; font-weight: 600;
+    background: rgba(255, 92, 92, .12); color: var(--gated);
+    border-bottom: 1px solid var(--gated);
+  }
+  .banner.show { display: block; }
+  table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  th, td { text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; }
+  tbody tr:hover { background: var(--panel-2); }
+  td.num { font-variant-numeric: tabular-nums; text-align: right; }
+  .pill { font-size: .7rem; padding: .1rem .45rem; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+  .pill.gated { border-color: var(--gated); color: var(--gated); }
+  .bar { height: 6px; border-radius: 3px; background: var(--panel-2); position: relative; min-width: 70px; }
+  .bar > span { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--ok); }
+  .strategy { color: var(--muted); font-size: .78rem; }
+  .empty { padding: 1rem; color: var(--muted); font-size: .85rem; }
+  .gated-row td { opacity: .55; font-style: italic; }
+  #log { max-height: 150px; overflow-y: auto; font-family: ui-monospace, monospace; font-size: .75rem; }
+  #log div { padding: .25rem .75rem; border-bottom: 1px solid var(--line); color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <h1>F1 Live Prediction Dashboard</h1>
+  <span class="regime" id="regime">regime —</span>
+  <select id="sessionSelect"><option value="">loading sessions…</option></select>
+  <button id="connectBtn">Connect</button>
+  <div class="spacer"></div>
+  <div class="status"><span class="dot" id="dot"></span><span id="statusText">disconnected</span></div>
+</header>
+
+<main>
+  <section id="practiceSection">
+    <h2>Practice — current form <span class="pill">not a forward prediction</span></h2>
+    <div class="empty" id="practiceEmpty">Select a practice session to load completed-lap form.</div>
+    <table id="practiceTable" hidden>
+      <thead><tr><th>#</th><th>Driver</th><th>Team</th><th class="num">Best lap</th><th class="num">Gap</th><th class="num">Laps</th><th>Compound</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section id="qualifyingSection">
+    <h2>Qualifying — predictions <span class="pill" id="periodPill">—</span></h2>
+    <div class="empty" id="qualiEmpty">Waiting for a qualifying update…</div>
+    <table id="qualiTable" hidden>
+      <thead><tr><th>#</th><th>Driver</th><th>Team</th><th class="num">Predicted lap</th><th>Advancement</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section id="raceSection">
+    <h2>Race — predictions <span class="pill" id="lapPill">—</span></h2>
+    <div class="banner" id="gateBanner"></div>
+    <div class="empty" id="raceEmpty">Waiting for a race update…</div>
+    <table id="raceTable" hidden>
+      <thead><tr><th>#</th><th>Driver</th><th>Team</th><th class="num">Predicted finish</th><th>Most likely strategy</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Event log</h2>
+    <div id="log"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+// Same-origin by default; override with ?api=http://host:port when the
+// dashboard is served by the Node front end on a different port.
+const params = new URLSearchParams(location.search);
+const API = (params.get("api") || location.origin).replace(/\/$/, "");
+const WS_BASE = API.replace(/^http/, "ws");
+
+const el = (id) => document.getElementById(id);
+let socket = null;
+let currentSessionId = null;
+
+function log(message) {
+  const line = document.createElement("div");
+  line.textContent = `${new Date().toLocaleTimeString()}  ${message}`;
+  el("log").prepend(line);
+  while (el("log").children.length > 100) el("log").lastChild.remove();
+}
+
+function setStatus(text, state) {
+  el("statusText").textContent = text;
+  el("dot").className = "dot" + (state ? " " + state : "");
+}
+
+async function api(path) {
+  const response = await fetch(`${API}${path}`);
+  if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
+  return response.json();
+}
+
+// --- session picker --------------------------------------------------------
+
+async function loadSessions() {
+  try {
+    const health = await api("/health");
+    el("regime").textContent = `regime ${health.regs_regime} · season ${health.season}`;
+    const sessions = await api(`/sessions?year=${health.season}`);
+    const select = el("sessionSelect");
+    select.innerHTML = "";
+    if (!sessions.length) {
+      select.innerHTML = '<option value="">no sessions — POST /seed first</option>';
+      return;
+    }
+    for (const session of sessions) {
+      const option = document.createElement("option");
+      option.value = session.id;
+      option.textContent = `${session.circuit_id} · ${session.session_type} · ${session.status}`;
+      option.dataset.type = session.session_type;
+      select.append(option);
+    }
+    log(`loaded ${sessions.length} sessions`);
+  } catch (error) {
+    log(`cannot reach API at ${API}: ${error.message}`);
+    setStatus("API unreachable", "error");
+  }
+}
+
+// --- rendering -------------------------------------------------------------
+
+function show(tableId, emptyId, hasRows) {
+  el(tableId).hidden = !hasRows;
+  el(emptyId).style.display = hasRows ? "none" : "block";
+}
+
+function renderPractice(summary) {
+  const body = el("practiceTable").querySelector("tbody");
+  body.innerHTML = "";
+  summary.drivers.forEach((driver, index) => {
+    const row = body.insertRow();
+    row.innerHTML = `
+      <td class="num">${index + 1}</td>
+      <td>${driver.driver_name}</td>
+      <td>${driver.team ?? "—"}</td>
+      <td class="num">${driver.best_lap_s ? driver.best_lap_s.toFixed(3) : "—"}</td>
+      <td class="num">${driver.gap_to_best_s != null ? "+" + driver.gap_to_best_s.toFixed(3) : "—"}</td>
+      <td class="num">${driver.laps_completed}</td>
+      <td>${driver.compound ?? "—"}</td>`;
+  });
+  show("practiceTable", "practiceEmpty", summary.drivers.length > 0);
+}
+
+function renderQualifying(message) {
+  el("periodPill").textContent = message.period;
+  const body = el("qualiTable").querySelector("tbody");
+  body.innerHTML = "";
+  message.predictions.forEach((prediction, index) => {
+    const probability = prediction.advancement_probability;
+    const bar = probability == null
+      ? '<span class="strategy">— (final period)</span>'
+      : `<div class="bar"><span style="width:${(probability * 100).toFixed(0)}%"></span></div>
+         <span class="strategy">${(probability * 100).toFixed(0)}%</span>`;
+    const row = body.insertRow();
+    row.innerHTML = `
+      <td class="num">${index + 1}</td>
+      <td>${prediction.driver_name ?? prediction.driver_id}</td>
+      <td>${prediction.team ?? "—"}</td>
+      <td class="num">${prediction.predicted_time_s != null ? prediction.predicted_time_s.toFixed(3) : "—"}</td>
+      <td>${bar}</td>`;
+  });
+  show("qualiTable", "qualiEmpty", message.predictions.length > 0);
+}
+
+function renderRace(message) {
+  el("lapPill").textContent = `lap ${message.lap_number}`;
+  const body = el("raceTable").querySelector("tbody");
+  body.innerHTML = "";
+  message.predictions.forEach((prediction, index) => {
+    const strategies = prediction.strategy_probabilities || {};
+    const [topStrategy, topProbability] = Object.entries(strategies)[0] || [];
+    const row = body.insertRow();
+    if (message.is_gated) row.className = "gated-row";
+    row.innerHTML = `
+      <td class="num">${index + 1}</td>
+      <td>${prediction.driver_name ?? prediction.driver_id}</td>
+      <td>${prediction.team ?? "—"}</td>
+      <td class="num">${prediction.predicted_finish_position != null ? prediction.predicted_finish_position.toFixed(1) : "—"}</td>
+      <td class="strategy">${topStrategy ? `${topStrategy} (${(topProbability * 100).toFixed(0)}%)` : "—"}</td>`;
+  });
+  show("raceTable", "raceEmpty", message.predictions.length > 0);
+  setGate(message.is_gated ? "low confidence: non-green-flag conditions" : null);
+}
+
+// Rule 4 made visible: during a non-green state the numbers stay on screen but
+// are explicitly marked low-confidence rather than presented as normal racing.
+function setGate(reason) {
+  const banner = el("gateBanner");
+  if (!reason) {
+    banner.classList.remove("show");
+    return;
+  }
+  banner.textContent = `⚠ ${reason}`;
+  banner.classList.add("show");
+}
+
+// --- websocket -------------------------------------------------------------
+
+function connect(sessionId) {
+  if (socket) socket.close();
+  currentSessionId = sessionId;
+  socket = new WebSocket(`${WS_BASE}/sessions/${sessionId}/live`);
+
+  socket.onopen = () => setStatus(`live · session ${sessionId}`, "live");
+  socket.onclose = () => setStatus("disconnected");
+  socket.onerror = () => setStatus("socket error", "error");
+  socket.onmessage = (event) => {
+    const message = JSON.parse(event.data);
+    switch (message.type) {
+      case "connected":
+        log(`connected to session ${message.session_id} (regime ${message.regs_regime})`);
+        break;
+      case "qualifying_update":
+        log(`qualifying update · ${message.period}`);
+        renderQualifying(message);
+        break;
+      case "race_update":
+        log(`race update · lap ${message.lap_number}${message.is_gated ? " (gated)" : ""}`);
+        renderRace(message);
+        break;
+      case "race_control":
+        log(`RACE CONTROL · ${message.event_type} (lap ${message.lap_number ?? "—"})`);
+        setGate(message.event_type === "green" ? null : `${message.event_type.replace("_", " ")} — predictions are low-confidence`);
+        break;
+      case "training_progress":
+        log(`training · ${message.stage}`);
+        break;
+      default:
+        log(`unhandled message: ${message.type}`);
+    }
+  };
+}
+
+el("connectBtn").addEventListener("click", async () => {
+  const select = el("sessionSelect");
+  const sessionId = select.value;
+  if (!sessionId) return;
+  connect(sessionId);
+  if (select.selectedOptions[0].dataset.type?.startsWith("FP")) {
+    try {
+      renderPractice(await api(`/sessions/${sessionId}/practice`));
+    } catch (error) {
+      log(`practice form unavailable: ${error.message}`);
+    }
+  }
+  // Backfill whatever the session already produced, so a late-joining client
+  // is not blank until the next scheduled update.
+  try {
+    const quali = await api(`/sessions/${sessionId}/qualifying/predictions`);
+    if (quali.length) renderQualifying({ period: quali[0].period, predictions: quali });
+    const race = await api(`/sessions/${sessionId}/race/predictions`);
+    if (race.length) renderRace({ lap_number: race[0].lap_number, predictions: race, is_gated: race[0].is_gated });
+  } catch (error) {
+    log(`backfill failed: ${error.message}`);
+  }
+});
+
+loadSessions();
+</script>
+</body>
+</html>
