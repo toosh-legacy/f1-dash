@@ -238,6 +238,15 @@ class FeatureBuilder:
     def _as_of_key(self) -> str:
         return self.as_of.isoformat() if self.as_of else "all"
 
+    def _session_rows(self, year: int) -> list[m.Session]:
+        """Completed sessions for a year that started before the ``as_of`` cutoff."""
+        stmt = select(m.Session).where(
+            m.Session.year == year, m.Session.status == m.SessionStatus.COMPLETED.value
+        )
+        if self.as_of is not None:
+            stmt = stmt.where(m.Session.start_time < self.as_of)
+        return list(self.db.scalars(stmt).all())
+
     def _completed_sessions(self, year: int) -> list[LoadedSession]:
         """Load completed sessions for a year, up to the ``as_of`` cutoff. Blocking."""
         key = f"sessions:{year}:{self._as_of_key}"
@@ -245,12 +254,7 @@ class FeatureBuilder:
         if cached is not None:
             return cached
 
-        stmt = select(m.Session).where(
-            m.Session.year == year, m.Session.status == m.SessionStatus.COMPLETED.value
-        )
-        if self.as_of is not None:
-            stmt = stmt.where(m.Session.start_time < self.as_of)
-        rows = self.db.scalars(stmt).all()
+        rows = self._session_rows(year)
         loaded: list[LoadedSession] = []
         for row in rows:
             try:

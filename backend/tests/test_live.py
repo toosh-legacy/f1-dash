@@ -36,6 +36,10 @@ class TestRaceControlClassification:
     def test_safety_car_ending_returns_to_green(self):
         assert rc.classify_message("SAFETY CAR IN THIS LAP") is RC.GREEN
 
+    def test_chequered_flag_is_not_a_red_flag(self):
+        """"CHEQUERED FLAG" contains the substring "RED FLAG"."""
+        assert rc.classify_message("CHEQUERED FLAG") is None
+
     def test_unrelated_message_carries_no_state(self):
         assert rc.classify_message("CAR 44 TIME 1:32.100 DELETED - TRACK LIMITS") is None
 

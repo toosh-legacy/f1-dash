@@ -1,0 +1,43 @@
+# Development/production-shaped stack: FastAPI + the static dashboard host.
+# Postgres is included but off by default -- uncomment it and switch
+# F1_DATABASE_URL to move off SQLite without touching application code.
+services:
+  api:
+    build:
+      context: ./backend
+    environment:
+      F1_ENV: production
+      F1_REGS_REGIME: "2026"
+      F1_SEASON: "2026"
+      F1_CORS_ORIGINS: http://localhost:3000
+      # F1_DATABASE_URL: postgresql+psycopg://f1:f1@db:5432/f1
+    volumes:
+      - f1-data:/data
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    environment:
+      API_TARGET: http://api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # db:
+  #   image: postgres:17-alpine
+  #   environment:
+  #     POSTGRES_USER: f1
+  #     POSTGRES_PASSWORD: f1
+  #     POSTGRES_DB: f1
+  #   volumes:
+  #     - f1-db:/var/lib/postgresql/data
+
+volumes:
+  f1-data:
+  # f1-db:

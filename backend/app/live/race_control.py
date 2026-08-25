@@ -23,10 +23,15 @@ from app.db.models import RaceControlEventType as RC
 
 log = logging.getLogger(__name__)
 
+#: The chequered flag ends the session; it carries no race-control state and is
+#: matched before anything else, because "CHEQUERED FLAG" contains the literal
+#: substring "RED FLAG".
+_SESSION_END = re.compile(r"CHEQUERED", re.I)
+
 # Ordered most specific first: "VIRTUAL SAFETY CAR" must not match plain
 # "SAFETY CAR", and "SAFETY CAR IN THIS LAP" is still a safety-car state.
 _MESSAGE_PATTERNS: list[tuple[re.Pattern[str], RC]] = [
-    (re.compile(r"\bRED\b|RED FLAG", re.I), RC.RED_FLAG),
+    (re.compile(r"\bRED\s+FLAG\b", re.I), RC.RED_FLAG),
     (re.compile(r"VIRTUAL SAFETY CAR|\bVSC\b", re.I), RC.VSC),
     (re.compile(r"SAFETY CAR|\bSC\b(?!\w)", re.I), RC.SAFETY_CAR),
     (re.compile(r"YELLOW", re.I), RC.YELLOW),
@@ -56,7 +61,7 @@ class GateState:
 def classify_message(text: str, flag: str | None = None, category: str | None = None) -> RC | None:
     """Map a race-control message to a state, or ``None`` if it carries none."""
     blob = " ".join(part for part in (flag, category, text) if part)
-    if not blob.strip():
+    if not blob.strip() or _SESSION_END.search(blob):
         return None
     for pattern, event_type in _MESSAGE_PATTERNS:
         if pattern.search(blob):
