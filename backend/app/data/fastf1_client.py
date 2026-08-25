@@ -55,7 +55,10 @@ class SessionResult:
 
     @property
     def is_dnf(self) -> bool:
-        if self.status is None:
+        # An unknown status is not evidence of a retirement: treat it as a
+        # finish, or a season whose classification data is missing would label
+        # the entire field as DNF.
+        if not self.status or self.status.lower() in {"nan", "none"}:
             return False
         s = self.status.lower()
         return not (s.startswith("finished") or s.startswith("+"))
@@ -167,6 +170,12 @@ class FastF1Client:
             laps=getattr(ses, "laps", None),
         )
         loaded.results = self._extract_results(ses)
+        # Classification data (position, grid, status) reaches FastF1 through
+        # Ergast, which does not cover the current season. When it is missing,
+        # the finishing order is reconstructed from timing data instead --
+        # without it every driver looks like a DNF and the race labels collapse
+        # to a single value.
+        self._augment_results_from_laps(ses, loaded.results)
         loaded.stints = self._extract_stints(ses)
         loaded.weather = self._extract_weather(ses)
         loaded.race_control = self._extract_race_control(ses)
@@ -201,6 +210,56 @@ class FastF1Client:
                 )
             )
         return results
+
+    @staticmethod
+    def _augment_results_from_laps(ses: Any, results: list[SessionResult]) -> None:
+        """Fill in position/grid/status from lap timing when classification is absent."""
+        if not results or all(r.position is not None for r in results):
+            return
+        laps = getattr(ses, "laps", None)
+        if laps is None or len(laps) == 0 or "Driver" not in laps.columns:
+            return
+
+        by_driver: dict[str, dict[str, Any]] = {}
+        for driver, group in laps.groupby("Driver"):
+            group = group.sort_values("LapNumber")
+            last = group.iloc[-1]
+            first = group.iloc[0]
+            by_driver[str(driver)] = {
+                "laps_completed": int(last["LapNumber"]) if "LapNumber" in group.columns else 0,
+                "final_position": _f(last.get("Position")) if "Position" in group.columns else None,
+                "first_lap_position": _f(first.get("Position")) if "Position" in group.columns else None,
+                "elapsed_s": _f(last.get("Time")) if "Time" in group.columns else None,
+            }
+        if not by_driver:
+            return
+
+        leader_laps = max(entry["laps_completed"] for entry in by_driver.values())
+        # Order by distance covered, then by elapsed time at the final lap.
+        ranking = sorted(
+            by_driver.items(),
+            key=lambda kv: (
+                -kv[1]["laps_completed"],
+                kv[1]["elapsed_s"] if kv[1]["elapsed_s"] is not None else float("inf"),
+            ),
+        )
+        derived_order = {driver: index + 1 for index, (driver, _) in enumerate(ranking)}
+
+        for result in results:
+            entry = by_driver.get(result.driver_id)
+            if entry is None:
+                continue
+            if result.position is None:
+                result.position = entry["final_position"] or float(derived_order[result.driver_id])
+            if result.grid_position is None:
+                # Position at the end of lap 1 is the closest available proxy for
+                # the starting grid slot when the grid itself is not published.
+                result.grid_position = entry["first_lap_position"]
+            if not result.status:
+                # More than one lap short of the leader is a retirement, not a
+                # lapped finisher -- a heuristic, and flagged as such.
+                behind = leader_laps - entry["laps_completed"]
+                result.status = "Finished" if behind <= 1 else "Retired (derived)"
 
     @staticmethod
     def _extract_stints(ses: Any) -> list[Stint]:

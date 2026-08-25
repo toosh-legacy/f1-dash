@@ -95,7 +95,7 @@ class QualifyingLoop(LiveLoop):
                 log.warning("no active qualifying model; skipping live inference")
                 return []
 
-            builder = FeatureBuilder(db, season=session.year)
+            builder = FeatureBuilder(db, season=session.year, as_of=session.start_time)
             drivers_by_number = {
                 d.driver_number: d for d in db.scalars(select(m.Driver)).all() if d.driver_number
             }

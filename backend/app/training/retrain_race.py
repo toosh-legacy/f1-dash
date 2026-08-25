@@ -81,7 +81,7 @@ def _ingest(session_id: int, progress: ProgressReporter) -> dict[str, Any]:
         recorded = _record_race_control(db, session, loaded)
 
         progress("backfilling_snapshots")
-        builder = FeatureBuilder(db, fastf1=client, season=session.year)
+        builder = FeatureBuilder(db, fastf1=client, season=session.year, as_of=session.start_time)
         deg_rate = _median_degradation(loaded)
         snapshots = _backfill_race_snapshots(db, builder, session, loaded, deg_rate)
 

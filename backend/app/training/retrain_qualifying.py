@@ -80,7 +80,7 @@ def _ingest(session_id: int, progress: ProgressReporter) -> dict[str, Any]:
             session.weather_snapshot = loaded.weather
 
         progress("backfilling_snapshots")
-        builder = FeatureBuilder(db, fastf1=client, season=session.year)
+        builder = FeatureBuilder(db, fastf1=client, season=session.year, as_of=session.start_time)
         _ensure_snapshots(db, builder, session)
 
         progress("labelling")

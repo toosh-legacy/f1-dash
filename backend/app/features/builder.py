@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -98,15 +99,22 @@ class FeatureBuilder:
         *,
         fastf1: FastF1Client | None = None,
         season: int | None = None,
+        as_of: datetime | None = None,
     ) -> None:
         self.db = db
         self.season = season or settings.CURRENT_SEASON
         self.fastf1 = fastf1 or FastF1Client(self.season)
+        # Aggregates are computed strictly from sessions that started *before*
+        # this instant. Without it, a feature vector for a session would be
+        # built from aggregates that already contain that session's own results
+        # -- target leakage, and with a season this short the aggregates would
+        # effectively encode the finishing order being predicted.
+        self.as_of = as_of
 
     # -- aggregates --------------------------------------------------------
     def team_forms(self) -> dict[str, TeamForm]:
         """Per-team form from the current regime's completed sessions only."""
-        key = f"team_forms:{self.season}"
+        key = f"team_forms:{self.season}:{self._as_of_key}"
         cached = _cache.get(key)
         if cached is not None:
             return cached
@@ -144,7 +152,7 @@ class FeatureBuilder:
 
     def driver_profiles(self, circuit_id: str | None = None) -> dict[str, DriverProfile]:
         """Driver aggregates over the full historical record (they transfer)."""
-        key = f"driver_profiles:{self.season}:{circuit_id}"
+        key = f"driver_profiles:{self.season}:{circuit_id}:{self._as_of_key}"
         cached = _cache.get(key)
         if cached is not None:
             return cached
@@ -226,18 +234,23 @@ class FeatureBuilder:
     def _completed_regime_sessions(self) -> list[LoadedSession]:
         return self._completed_sessions(self.season)
 
+    @property
+    def _as_of_key(self) -> str:
+        return self.as_of.isoformat() if self.as_of else "all"
+
     def _completed_sessions(self, year: int) -> list[LoadedSession]:
-        """Load every completed session recorded for a year. Blocking."""
-        key = f"sessions:{year}"
+        """Load completed sessions for a year, up to the ``as_of`` cutoff. Blocking."""
+        key = f"sessions:{year}:{self._as_of_key}"
         cached = _cache.get(key)
         if cached is not None:
             return cached
 
-        rows = self.db.scalars(
-            select(m.Session).where(
-                m.Session.year == year, m.Session.status == m.SessionStatus.COMPLETED.value
-            )
-        ).all()
+        stmt = select(m.Session).where(
+            m.Session.year == year, m.Session.status == m.SessionStatus.COMPLETED.value
+        )
+        if self.as_of is not None:
+            stmt = stmt.where(m.Session.start_time < self.as_of)
+        rows = self.db.scalars(stmt).all()
         loaded: list[LoadedSession] = []
         for row in rows:
             try:
