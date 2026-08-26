@@ -55,8 +55,6 @@ The API also serves the dashboard directly at <http://localhost:8000/>. The Node
 the frontend can live on its own origin — as it would behind a CDN — and to proxy the WebSocket
 upgrade in development.
 
-Docker: `docker compose up --build` brings up both services.
-
 ## Watching a session live
 
 ```bash
