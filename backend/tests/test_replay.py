@@ -199,6 +199,30 @@ class TestPlayback:
         assert last - first <= 7200
 
 
+class TestFlagState:
+    def test_the_build_up_does_not_set_the_race_s_flag(self):
+        """A safety-car board on the grid is not the race running under one."""
+        t0 = START.timestamp()
+        control = [
+            {"date": (START - timedelta(minutes=40)).isoformat(), "message": "SAFETY CAR DEPLOYED"},
+            {"date": (START + timedelta(minutes=20)).isoformat(), "message": "YELLOW FLAG"},
+        ]
+        timeline = R._flag_timeline(control, t0)
+        assert [state for _offset, state in timeline] == ["yellow"]
+
+    def test_frames_carry_the_state_that_applied_when_they_ran(self):
+        frames = [{"t": float(second), "cars": {}} for second in range(0, 60, 10)]
+        R._annotate_frames(frames, [(0.0, 1)], [(25.0, "safety_car"), (45.0, "green")], {})
+        assert [frame["flag"] for frame in frames] == [
+            "green", "green", "green", "safety_car", "safety_car", "green",
+        ]
+
+    def test_a_car_in_the_pits_is_marked_in_its_frames(self):
+        frames = [{"t": float(second), "cars": {}} for second in range(0, 40, 10)]
+        R._annotate_frames(frames, [], [], {44: [(15.0, 25.0)]})
+        assert [frame.get("pit") for frame in frames] == [None, None, [44], None]
+
+
 class TestCatalogue:
     class _Client:
         def __init__(self, rows):

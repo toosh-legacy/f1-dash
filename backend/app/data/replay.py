@@ -43,7 +43,7 @@ Progress = Callable[[str, dict[str, Any] | None], None]
 
 #: Bundle format version. Bumped when the on-disk shape changes so stale caches
 #: are rebuilt rather than misread.
-BUNDLE_VERSION = 3
+BUNDLE_VERSION = 4
 
 #: A sample further than this from the racing line is not on the racing line.
 #: OpenF1 units are roughly decimetres, so this is ~15 m -- wide enough to keep
@@ -889,6 +889,11 @@ def _flag_timeline(control: list[dict[str, Any]], t0: float) -> list[tuple[float
         if state is None:
             continue
         offset = moment.timestamp() - t0
+        # Messages from before the session window belong to the build-up -- a
+        # safety-car board on the grid, a pit-exit light -- and are not this
+        # session's flag state. Carrying one in starts the race under yellow.
+        if offset < 0:
+            continue
         if timeline and timeline[-1][1] == state.value:
             continue
         timeline.append((offset, state.value))

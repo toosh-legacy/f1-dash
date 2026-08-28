@@ -4,6 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>F1 2026 · Live Prediction Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🏁</text></svg>" />
 <style>
 :root {
   --bg: #0b0c0e;
@@ -96,12 +97,15 @@ main { padding: 18px 20px 40px; max-width: 1500px; margin: 0 auto; }
 
 #mapWrap { position: relative; background: radial-gradient(120% 100% at 50% 0%, #14161a, #0b0c0e 70%); }
 svg#map { display: block; width: 100%; height: min(62vh, 620px); }
-#trackGlow { fill: none; stroke: var(--mustard); stroke-width: 13; stroke-linejoin: round;
-  stroke-linecap: round; opacity: .18; filter: blur(7px); }
-#trackHalo { fill: none; stroke: var(--mustard); stroke-width: 6.5; stroke-linejoin: round;
-  stroke-linecap: round; opacity: .30; filter: blur(2px); }
-#trackLine { fill: none; stroke: var(--mustard); stroke-width: 2.4; stroke-linejoin: round;
-  stroke-linecap: round; opacity: .92; }
+/* A dull glow, not neon: a wide soft wash, a tight halo, and a thin line that
+   is deliberately dimmer than full mustard so the outline reads as lit rather
+   than as a light source. */
+#trackGlow { fill: none; stroke: #a8842f; stroke-width: 15; stroke-linejoin: round;
+  stroke-linecap: round; opacity: .13; filter: blur(9px); }
+#trackHalo { fill: none; stroke: #b8912f; stroke-width: 6; stroke-linejoin: round;
+  stroke-linecap: round; opacity: .18; filter: blur(3px); }
+#trackLine { fill: none; stroke: var(--mustard); stroke-width: 2.2; stroke-linejoin: round;
+  stroke-linecap: round; opacity: .72; }
 #pitLine { fill: none; stroke: #6f7d8c; stroke-width: 1.8; stroke-dasharray: 7 6; opacity: .75; }
 #startLine { stroke: #ffffff; stroke-width: 2.5; opacity: .8; }
 .car-dot { r: 8.5; stroke: #0b0c0e; stroke-width: 1.5; }
@@ -474,16 +478,22 @@ async function loadReplay(sessionKey) {
   el("startLine").setAttribute("y2", sy - Math.sin(angle) * 9);
 
   buildCarLayer(bundle.drivers);
-  renderRaceControl(bundle.race_control);
+
+  // Open where the race does. The feed starts well before the lights, with the
+  // cars stacked on the grid and no timing, which is a poor first impression.
+  const green = bundle.frames.find(
+    (frame) => frame.lap >= 1 && Object.keys(frame.cars).length > bundle.drivers.length / 2
+  );
+  player.time = green ? green.t : 0;
 
   const session = bundle.session;
   el("mapWhere").textContent = `${session.circuit || session.location} · ${session.name}`;
   el("mapWhen").textContent = new Date(session.date_start).toLocaleString() +
     ` · ${bundle.total_laps} laps · ${bundle.drivers.length} cars`;
-  el("cachePill").textContent = `${(JSON.stringify(bundle).length / 1e6).toFixed(1)} MB replay`;
+  el("cachePill").textContent = `${bundle.track.path.length}-point outline`;
   el("scrub").max = String(Math.round(bundle.duration_s));
   setStatus("replay ready", "live");
-  renderFrame(0);
+  renderFrame(player.time);
   showView("map");
 }
 
@@ -502,7 +512,7 @@ function buildCarLayer(drivers) {
     dot.setAttribute("class", "car-dot");
     dot.setAttribute("fill", driver.colour);
     // The glow is the team colour, so it has to be inline rather than in CSS.
-    dot.style.filter = `drop-shadow(0 0 5px ${driver.colour}) drop-shadow(0 0 11px ${driver.colour})`;
+    dot.style.filter = `drop-shadow(0 0 4px ${driver.colour}) drop-shadow(0 0 9px ${driver.colour})`;
 
     const label = document.createElementNS(svgNS, "text");
     label.setAttribute("class", "car-label");
@@ -587,6 +597,7 @@ function renderFrame(time) {
   el("flagChip").textContent = flag.replace("_", " ");
   el("lapCount").textContent = `lap ${frame.lap || 0} / ${bundle.total_laps}`;
 
+  renderRaceControl(time);
   if (frame.lap !== player.lap) {
     player.lap = frame.lap;
     renderOrder(frame.lap);
@@ -595,7 +606,10 @@ function renderFrame(time) {
 }
 
 function renderOrder(lap) {
-  const rows = (player.bundle.laps || {})[String(lap)] || [];
+  // Before the first lap is complete there is no timing to show, so the grid
+  // as it stands on lap one stands in for it.
+  const laps = player.bundle.laps || {};
+  const rows = laps[String(lap)] || laps["1"] || [];
   const drivers = new Map(player.bundle.drivers.map((d) => [d.number, d]));
   el("orderLap").textContent = lap ? `lap ${lap}` : "—";
   const container = el("order");
@@ -619,12 +633,19 @@ function renderOrder(lap) {
   }
 }
 
-function renderRaceControl(events) {
+/** Race control up to the playhead: what has been announced so far, not what
+ *  is coming. Messages timestamped outside the session window are dropped --
+ *  the feed carries some from before the cars were released. */
+function renderRaceControl(upTo) {
   const container = el("rcLog");
-  el("rcCount").textContent = `${events.length} messages`;
-  if (!events.length) { container.innerHTML = '<div class="empty">No messages.</div>'; return; }
+  const all = (player.bundle.race_control || []).filter(
+    (event) => event.t >= 0 && event.t <= player.bundle.duration_s
+  );
+  const events = all.filter((event) => event.t <= upTo);
+  el("rcCount").textContent = `${events.length} of ${all.length} messages`;
+  if (!events.length) { container.innerHTML = '<div class="empty">Nothing announced yet.</div>'; return; }
   container.textContent = "";
-  for (const event of events.slice().reverse()) {
+  for (const event of events.slice(-60).reverse()) {
     const row = document.createElement("div");
     row.className = "order-row";
     row.style.gridTemplateColumns = "70px 90px 1fr";
