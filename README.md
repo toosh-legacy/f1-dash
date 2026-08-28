@@ -20,7 +20,8 @@ Built to `guide.md`, which remains the specification; this README covers how to 
 | Models | XGBoost (all four prediction models) |
 | Completed-session data | `fastf1` |
 | Live session data | OpenF1 REST (no API key) |
-| Frontend | Static HTML/JS, no build step, served by a zero-dependency Node server |
+| Replay geometry | OpenF1 `location` feed, reconstructed server-side |
+| Frontend | Static HTML/JS/SVG, no build step, served by a zero-dependency Node server |
 
 ## Quick start
 
@@ -54,6 +55,43 @@ npm run smoke      # end-to-end check: API, dashboard, WebSocket
 The API also serves the dashboard directly at <http://localhost:8000/>. The Node server exists so
 the frontend can live on its own origin — as it would behind a CDN — and to proxy the WebSocket
 upgrade in development.
+
+## The race map
+
+The dashboard opens on the most recent race with a replay built: the circuit
+drawn as a glowing mustard outline, every car a dot in its team's colour, moving
+around the lap it actually drove, peeling into the pit lane when it stopped.
+Scrub, play at up to 60x, and the running order, flag state and race-control log
+follow the playhead.
+
+None of that geometry is shipped with the project. OpenF1's `location` feed
+gives raw track X/Y per car, and `app/data/replay.py` turns a finished session
+into a cached bundle:
+
+```bash
+curl -X POST http://localhost:8000/replays/11353/build   # one job per session
+curl http://localhost:8000/replays                       # what is built
+npm run check:replay                                     # verify one end to end
+```
+
+The **Replays** tab lists every race that has run this season and builds any of
+them on demand — one background job, a few minutes, then it plays instantly from
+cache.
+
+## The prediction panel
+
+The tab pinned to the right edge answers "who finishes where from here?" at the
+lap under the playhead, two ways that are deliberately not blended:
+
+```
+projected = gap_to_leader - pace_advantage x laps_remaining + pit_loss x stops_owed
+```
+
+Arithmetic, with every term shown next to the result: current position, rolling
+pace against the field median, tyre and age, stops taken and stops still owed.
+Beside it, where the session is in the database and a model is active for the
+regime, the trained finish-position model's own order over the same lap. Where
+the two disagree, a strategy is about to pay off or fail.
 
 ## Watching a session live
 
@@ -96,17 +134,18 @@ serve time under another.
 
 ```
 backend/app/
-  data/       fastf1_client.py (completed sessions) · openf1_client.py (live) · seed.py
+  data/       fastf1_client.py (completed sessions) · openf1_client.py (live)
+              replay.py (circuit + playback reconstruction) · seed.py
   features/   transfer.py (the §2 table as code) · engineering.py (pure features) · builder.py
   models/     base.py · qualifying_model.py · race_model.py · registry.py (versioning + gate)
   training/   dataset.py (labelling + matrix) · retrain_qualifying.py · retrain_race.py · jobs.py
   live/       base.py (polling threads) · qualifying_loop.py · race_loop.py · race_control.py
-              broadcast.py (per-session subscriber queues)
+              projection.py (the prediction panel) · broadcast.py (subscriber queues)
   db/         models.py · database.py
   main.py     REST + WebSocket routes
   cli.py      seed / backfill / status / promote
 frontend/     server.js (static host + dev proxy, stdlib only)
-scripts/      smoke.js (end-to-end check)
+scripts/      smoke.js (API + websocket) · replay-check.js (replay geometry)
 ```
 
 ## API
@@ -126,18 +165,25 @@ scripts/      smoke.js (end-to-end check)
 | GET | `/sessions/{id}/race_control` | Recorded race-control events |
 | GET | `/models` · POST `/models/{id}/promote` | Registry and manual activation |
 | POST | `/sessions/{id}/live/start` · `/live/stop` · GET `/live` | Live loop control |
+| GET | `/replays` | Every race that has run, and whether its replay is built |
+| POST | `/replays/{session_key}/build` | Queue a replay build; returns a job |
+| GET | `/replays/{session_key}` | The replay bundle (gzipped) |
+| GET | `/replays/{session_key}/projection?lap=` | Projected finishing order at a lap |
 | WS | `/sessions/{id}/live` | `qualifying_update` / `race_update` / `race_control` |
 
 ## Tests
 
 ```bash
-cd backend && .venv/Scripts/python -m pytest        # 84 tests, no network required
+cd backend && .venv/Scripts/python -m pytest        # 111 tests, no network required
 ```
 
 Coverage focuses on the parts that are expensive to get wrong: the transfer table, feature
 completeness and fallbacks, the validation gate and promotion invariants, race-control
 classification and gating, broadcast fan-out under a slow subscriber, loop resilience to a failing
-poll, and the leakage guards around training-data assembly.
+poll, the leakage guards around training-data assembly, and the replay reconstruction — which is
+tested against a synthetic circuit sampled the way the real feed samples, so the question asked is
+"does a sparse, jittery feed come back as the shape it was sampled from" rather than "does one
+recorded race still look right".
 
 ## Notes from running it against real 2026 data
 
@@ -152,6 +198,12 @@ poll, and the leakage guards around training-data assembly.
 - **The Manual Override field name is probed, not hardcoded.** 2026 replaces DRS with Manual
   Override; `detect_override_field` checks candidate names against the live payload and falls back
   to neutral when none is present. Against current OpenF1 data it still resolves to `drs`.
+- **The position feed is far coarser than it looks.** A fix arrives about every 2.7 s -- a 250 m
+  jump at racing speed, roughly thirty points per lap. Drawing those directly teleports cars across
+  corners, so the circuit is reconstructed first (every green lap of the race folded onto one lap,
+  then refined twice by projection) and cars are carried as *progress along that path*. The pit lane
+  cannot be found by distance from the racing line, because a car running wide at a fast corner is
+  further off line than a car in the pits; it is traced from the fixes around timed stops instead.
 - **Scores from a five-event backfill:** qualifying-advancement accuracy 0.57–0.89, finishing
   position MAE 2.6–5.3 places. Race-strategy accuracy swings widely (0.0–0.95) because a held-out
   race can run strategies absent from a corpus this small; the validation detail reports
@@ -160,5 +212,5 @@ poll, and the leakage guards around training-data assembly.
 ## Configuration
 
 Copy `backend/.env.example` to `.env`. Everything is environment-driven: database URL, regime and
-season, poll cadences, model directory, validation margin, leakage threshold, and whether a passing
-model auto-promotes (off by default).
+season, poll cadences, model directory, replay cache directory and frame rate, validation margin,
+leakage threshold, and whether a passing model auto-promotes (off by default).

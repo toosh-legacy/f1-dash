@@ -61,6 +61,11 @@ COMPOUND_LIFE_LAPS = {
 }
 DEFAULT_TYRE_LIFE_LAPS = 30
 
+#: A car stopping for the run to the flag fits whatever covers the distance, so
+#: stints still to come are measured against the longest-lived compound rather
+#: than against whatever happens to be on the car now.
+LONGEST_STINT_LAPS = max(COMPOUND_LIFE_LAPS.values())
+
 
 def project_finish(
     bundle: dict[str, Any],
@@ -154,7 +159,7 @@ def _stops_owed(row: dict[str, Any], remaining: int) -> int:
     if left_on_these >= remaining:
         return 0
     # Whatever the current set cannot cover has to be covered by fresh sets.
-    return max(1, -(-(remaining - left_on_these) // life))
+    return max(1, -(-(remaining - left_on_these) // LONGEST_STINT_LAPS))
 
 
 def _pit_loss(bundle: dict[str, Any], db: DBSession | None) -> float:

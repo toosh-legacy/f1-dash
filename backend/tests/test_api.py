@@ -81,7 +81,11 @@ class TestMeta:
     def test_dashboard_is_served(self, client):
         response = client.get("/")
         assert response.status_code == 200
-        assert "F1 Live Prediction Dashboard" in response.text
+        assert "Live Prediction Dashboard" in response.text
+        # The three things the page is: a circuit map, a replay library and a
+        # live view. If one stops being served the page is half a dashboard.
+        for marker in ('id="map"', 'id="view-replays"', 'id="view-live"'):
+            assert marker in response.text
 
 
 class TestSessions:

@@ -2,14 +2,21 @@
   "name": "f1-prediction-dashboard",
   "version": "1.0.0",
   "private": true,
-  "description": "Live F1 per-car prediction dashboard: FastAPI + XGBoost backend, zero-build static frontend served by Node.",
-  "engines": { "node": ">=18" },
+  "description": "Live F1 per-car prediction dashboard: FastAPI + XGBoost backend, replay map and zero-build static frontend served by Node.",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "start": "node frontend/server.js",
     "dev": "node --watch frontend/server.js",
     "api": "python -m uvicorn app.main:app --reload --port 8000",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "check:replay": "node scripts/replay-check.js"
   },
-  "keywords": ["f1", "predictions", "dashboard"],
+  "keywords": [
+    "f1",
+    "predictions",
+    "dashboard"
+  ],
   "license": "MIT"
 }
