@@ -26,6 +26,7 @@ from app.data import replay
 from app.data import seed as seeding
 from app.data.fastf1_client import FastF1Client, FastF1Unavailable
 from app.db import models as m
+from app.db import projection_store
 from app.db.database import get_db, init_db
 from app.live.base import loops
 from app.live.broadcast import broadcaster
@@ -33,6 +34,7 @@ from app.live import projection
 from app.live.qualifying_loop import QualifyingLoop
 from app.live.race_loop import RaceLoop
 from app.models import registry
+from app.models import replay_predictor
 from app.training import jobs
 from app.training import retrain_qualifying, retrain_race
 
@@ -440,13 +442,66 @@ def get_replay(session_key: int) -> FileResponse:
 
 @app.get("/replays/{session_key}/projection", tags=["replays"])
 def replay_projection(
-    session_key: int, lap: int = Query(ge=1), db: DBSession = Depends(get_db)
+    session_key: int,
+    lap: int = Query(ge=1),
+    fresh: bool = False,
+    db: DBSession = Depends(get_db),
 ) -> dict[str, Any]:
-    """Where the race is heading as of ``lap`` -- the prediction panel's data."""
+    """Where the race is heading as of ``lap`` -- the prediction panel's data.
+
+    Served from the projection cache when the lap has already been evaluated
+    under the active model; computed and stored on a miss. ``fresh=true``
+    recomputes regardless, which is how a cached answer gets checked.
+    """
     bundle = replay.load_bundle(session_key)
     if bundle is None:
         raise HTTPException(status_code=404, detail=f"replay for session {session_key} is not built yet")
-    return projection.project_finish(bundle, lap, db=db)
+    result = replay_predictor.projection_for(db, bundle, lap, use_cache=not fresh)
+    if not result.get("cached"):
+        # A read path that computed something expensive keeps it: the write is
+        # the whole point of asking once.
+        db.commit()
+    return result
+
+
+@app.post("/replays/{session_key}/predict", response_model=schemas.JobOut, tags=["replays"])
+def evaluate_replay(session_key: int) -> dict[str, Any]:
+    """Run the prediction model over every lap of a replay, and cache it.
+
+    A batch pass, on the same background pool as retraining: after it, the
+    prediction panel reads rows instead of running models.
+    """
+    if not replay.is_cached(session_key):
+        raise HTTPException(
+            status_code=409,
+            detail=f"replay for session {session_key} is not built yet; build it first",
+        )
+
+    def run(progress: jobs.ProgressReporter) -> dict[str, Any]:
+        return replay_predictor.run(session_key, progress)
+
+    return jobs.submit("predict", None, run).as_dict()
+
+
+@app.get("/replays/{session_key}/predictions", tags=["replays"])
+def replay_prediction_coverage(
+    session_key: int, db: DBSession = Depends(get_db)
+) -> dict[str, Any]:
+    """What has already been evaluated for a replay, per model version."""
+    return projection_store.coverage(db, session_key) | {
+        "active_model_version": replay_predictor.active_model_version(db),
+        "built": replay.is_cached(session_key),
+    }
+
+
+@app.delete("/replays/{session_key}/predictions", tags=["replays"])
+def clear_replay_predictions(
+    session_key: int, db: DBSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Drop a replay's cached projections, so the next run recomputes them."""
+    removed = projection_store.clear(db, session_key)
+    db.commit()
+    return {"session_key": session_key, "cleared": removed}
 
 
 # -- websocket ---------------------------------------------------------------

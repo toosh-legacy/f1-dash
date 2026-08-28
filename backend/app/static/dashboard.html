@@ -97,23 +97,35 @@ main { padding: 18px 20px 40px; max-width: 1500px; margin: 0 auto; }
 
 #mapWrap { position: relative; background: radial-gradient(120% 100% at 50% 0%, #14161a, #0b0c0e 70%); }
 svg#map { display: block; width: 100%; height: min(62vh, 620px); }
-/* A dull glow, not neon: a wide soft wash, a tight halo, and a thin line that
-   is deliberately dimmer than full mustard so the outline reads as lit rather
-   than as a light source. */
-#trackGlow { fill: none; stroke: #a8842f; stroke-width: 15; stroke-linejoin: round;
-  stroke-linecap: round; opacity: .13; filter: blur(9px); }
-#trackHalo { fill: none; stroke: #b8912f; stroke-width: 6; stroke-linejoin: round;
-  stroke-linecap: round; opacity: .18; filter: blur(3px); }
-#trackLine { fill: none; stroke: var(--mustard); stroke-width: 2.2; stroke-linejoin: round;
-  stroke-linecap: round; opacity: .72; }
-#pitLine { fill: none; stroke: #6f7d8c; stroke-width: 1.8; stroke-dasharray: 7 6; opacity: .75; }
-#startLine { stroke: #ffffff; stroke-width: 2.5; opacity: .8; }
-.car-dot { r: 8.5; stroke: #0b0c0e; stroke-width: 1.5; }
-.car-label { font-size: 9.5px; font-weight: 700; fill: #0b0c0e; text-anchor: middle;
-  dominant-baseline: central; pointer-events: none; }
+/* The circuit is drawn as a road, not a line: one wide mustard stroke with a
+   narrower background-coloured stroke laid over it, which leaves a lit edge
+   down each side. Underneath, a dull wash and a tight halo give it the glow --
+   soft, not neon, so the outline reads as lit rather than as a light source. */
+#trackGlow { fill: none; stroke: #a8842f; stroke-width: 30; stroke-linejoin: round;
+  stroke-linecap: round; opacity: .13; filter: blur(11px); }
+#trackHalo { fill: none; stroke: #b8912f; stroke-width: 19; stroke-linejoin: round;
+  stroke-linecap: round; opacity: .16; filter: blur(4px); }
+#trackLine { fill: none; stroke: var(--mustard); stroke-width: 15; stroke-linejoin: round;
+  stroke-linecap: round; opacity: .85; }
+#trackSurface { fill: none; stroke: #101216; stroke-width: 11; stroke-linejoin: round;
+  stroke-linecap: round; }
+#pitLine { fill: none; stroke: #55606c; stroke-width: 7; stroke-linejoin: round;
+  stroke-linecap: round; opacity: .55; }
+#pitSurface { fill: none; stroke: #101216; stroke-width: 4; stroke-linejoin: round;
+  stroke-linecap: round; }
+#startLine { stroke: #ffffff; stroke-width: 3.5; opacity: .85; }
+.car-dot { r: 13; stroke: #0b0c0e; stroke-width: 2; }
+.car-label { font-size: 12px; font-weight: 800; fill: #0b0c0e; text-anchor: middle;
+  dominant-baseline: central; pointer-events: none; letter-spacing: -0.02em; }
+/* The surname under the dot: the three-letter code is the broadcast name, but
+   it is not much use to anyone who does not already know the grid. */
+.car-name { font-size: 10.5px; font-weight: 700; fill: #e8eaed; text-anchor: middle;
+  paint-order: stroke; stroke: #0b0c0e; stroke-width: 3.5; stroke-linejoin: round;
+  pointer-events: none; }
 .car.pit .car-dot { opacity: .55; }
 .car.dim { opacity: .35; }
-.car-tag { font-size: 8px; fill: var(--muted); text-anchor: middle; }
+.car-tag { font-size: 9.5px; font-weight: 700; fill: var(--amber); text-anchor: middle;
+  paint-order: stroke; stroke: #0b0c0e; stroke-width: 3; }
 .car.selected .car-dot { stroke: #fff; stroke-width: 2; }
 
 /* ---------- transport ---------- */
@@ -223,7 +235,9 @@ footer b { color: #c6ccd3; font-weight: 600; }
 
         <div id="mapWrap">
           <svg id="map" viewBox="0 0 1000 620" preserveAspectRatio="xMidYMid meet">
-            <path id="trackGlow" /><path id="trackHalo" /><path id="pitLine" /><path id="trackLine" />
+            <path id="trackGlow" /><path id="trackHalo" />
+            <path id="pitLine" /><path id="pitSurface" />
+            <path id="trackLine" /><path id="trackSurface" />
             <line id="startLine" />
             <g id="cars"></g>
           </svg>
@@ -327,10 +341,14 @@ footer b { color: #c6ccd3; font-weight: 600; }
     <h2>Projected finish</h2>
     <span class="pill" id="panelLap">—</span>
     <span class="spacer"></span>
+    <button id="evaluateBtn" title="Run the model over every lap and cache it">Evaluate race</button>
     <button id="panelClose">Close</button>
   </div>
   <div class="panel-body" id="panelBody"><div class="empty">Load a replay to project a finishing order.</div></div>
-  <div class="panel-note" id="panelNote"></div>
+  <div class="panel-note">
+    <span class="pill" id="panelCoverage">—</span>
+    <div id="panelNote" style="margin-top:8px"></div>
+  </div>
 </aside>
 
 <script>
@@ -466,16 +484,18 @@ async function loadReplay(sessionKey) {
   el("trackGlow").setAttribute("d", toPathData(player.path, true));
   el("trackHalo").setAttribute("d", toPathData(player.path, true));
   el("trackLine").setAttribute("d", toPathData(player.path, true));
+  el("trackSurface").setAttribute("d", toPathData(player.path, true));
   el("pitLine").setAttribute("d", toPathData(player.pitPath, false));
+  el("pitSurface").setAttribute("d", toPathData(player.pitPath, false));
 
   // The start/finish marker sits across the first vertex of the racing line.
   const [sx, sy] = player.path[0];
   const [nx, ny] = player.path[1] || [sx + 1, sy];
   const angle = Math.atan2(ny - sy, nx - sx) + Math.PI / 2;
-  el("startLine").setAttribute("x1", sx + Math.cos(angle) * 9);
-  el("startLine").setAttribute("y1", sy + Math.sin(angle) * 9);
-  el("startLine").setAttribute("x2", sx - Math.cos(angle) * 9);
-  el("startLine").setAttribute("y2", sy - Math.sin(angle) * 9);
+  el("startLine").setAttribute("x1", sx + Math.cos(angle) * 8);
+  el("startLine").setAttribute("y1", sy + Math.sin(angle) * 8);
+  el("startLine").setAttribute("x2", sx - Math.cos(angle) * 8);
+  el("startLine").setAttribute("y2", sy - Math.sin(angle) * 8);
 
   buildCarLayer(bundle.drivers);
 
@@ -499,6 +519,15 @@ async function loadReplay(sessionKey) {
 
 const carNodes = new Map();
 
+/** How much room a surname needs, in SVG units, before it collides. */
+const NAME_CLEARANCE = 54;
+
+/** "Lando NORRIS" -> "NORRIS". The feed capitalises the family name. */
+function surnameOf(driver) {
+  const parts = String(driver.name || "").trim().split(/\s+/);
+  return (parts[parts.length - 1] || driver.code || "").toUpperCase();
+}
+
 function buildCarLayer(drivers) {
   const layer = el("cars");
   layer.textContent = "";
@@ -518,14 +547,19 @@ function buildCarLayer(drivers) {
     label.setAttribute("class", "car-label");
     label.textContent = driver.code;
 
+    const name = document.createElementNS(svgNS, "text");
+    name.setAttribute("class", "car-name");
+    name.setAttribute("dy", "26");
+    name.textContent = surnameOf(driver);
+
     const tag = document.createElementNS(svgNS, "text");
     tag.setAttribute("class", "car-tag");
-    tag.setAttribute("dy", "-14");
+    tag.setAttribute("dy", "-19");
 
-    group.append(dot, label, tag);
+    group.append(dot, label, name, tag);
     group.addEventListener("click", () => selectCar(driver.number));
     layer.append(group);
-    carNodes.set(String(driver.number), { group, dot, label, tag });
+    carNodes.set(String(driver.number), { group, dot, label, name, tag });
   }
 }
 
@@ -568,6 +602,7 @@ function renderFrame(time) {
   if (!frame) return;
 
   const loop = player.path.length;
+  const placed = [];
   for (const [number, node] of carNodes) {
     const here = frame.cars[number];
     if (here === undefined) { node.group.setAttribute("visibility", "hidden"); continue; }
@@ -586,9 +621,12 @@ function renderFrame(time) {
     node.group.classList.toggle("pit", inPit);
     node.dot.setAttribute("cx", x); node.dot.setAttribute("cy", y);
     node.label.setAttribute("x", x); node.label.setAttribute("y", y);
+    node.name.setAttribute("x", x); node.name.setAttribute("y", y);
     node.tag.setAttribute("x", x); node.tag.setAttribute("y", y);
     node.tag.textContent = inPit ? "PIT" : "";
+    placed.push([node, x, y]);
   }
+  hideCrowdedNames(placed);
 
   el("clock").textContent = `${clock(time)} / ${clock(bundle.duration_s)}`;
   el("scrub").value = String(Math.round(time));
@@ -602,6 +640,27 @@ function renderFrame(time) {
     player.lap = frame.lap;
     renderOrder(frame.lap);
     if (panelOpen()) refreshProjection(frame.lap);
+  }
+}
+
+/** Surnames are only legible while they are not on top of each other.
+ *
+ *  Cars in a train print one name over another, which is worse than printing
+ *  none, so a name is dropped when a closer car has already claimed the space
+ *  -- the leading car of a group keeps its label, and a selected car always
+ *  keeps its own. */
+function hideCrowdedNames(placed) {
+  for (let index = 0; index < placed.length; index += 1) {
+    const [node, x, y] = placed[index];
+    let crowded = false;
+    for (let other = 0; other < index && !crowded; other += 1) {
+      const [, ox, oy] = placed[other];
+      crowded = Math.hypot(x - ox, y - oy) < NAME_CLEARANCE;
+    }
+    node.name.setAttribute(
+      "visibility",
+      crowded && !node.group.classList.contains("selected") ? "hidden" : "visible"
+    );
   }
 }
 
@@ -770,9 +829,52 @@ const panelOpen = () => el("panel").classList.contains("open");
 
 el("panelToggle").addEventListener("click", () => {
   el("panel").classList.toggle("open");
-  if (panelOpen() && player.bundle) refreshProjection(player.lap || 1);
+  if (panelOpen() && player.bundle) {
+    refreshProjection(player.lap || 1);
+    showCoverage();
+  }
 });
 el("panelClose").addEventListener("click", () => el("panel").classList.remove("open"));
+
+/** Run the prediction model over every lap of the loaded replay.
+ *
+ *  A batch pass on the server's job pool, not a request: afterwards the panel
+ *  reads stored rows instead of running a model per lap. */
+async function evaluateReplay() {
+  if (!player.sessionKey) return;
+  const button = el("evaluateBtn");
+  button.disabled = true;
+  try {
+    const job = await api(`/replays/${player.sessionKey}/predict`, { method: "POST" });
+    const finished = await pollJob(job.job_id, (record) => {
+      const stage = record.stages[record.stages.length - 1] || "working";
+      button.textContent = `${stage}…`;
+    });
+    if (finished.status !== "succeeded") throw new Error(finished.error || "evaluation failed");
+    projectionCache.clear();
+    button.textContent = `${finished.result.laps} laps cached`;
+    await refreshProjection(player.lap || 1);
+    await showCoverage();
+  } catch (error) {
+    button.textContent = "Evaluate race";
+    el("panelNote").textContent = error.message;
+  } finally {
+    button.disabled = false;
+    setTimeout(() => { button.textContent = "Evaluate race"; }, 4000);
+  }
+}
+el("evaluateBtn").addEventListener("click", evaluateReplay);
+
+async function showCoverage() {
+  if (!player.sessionKey) return;
+  try {
+    const coverage = await api(`/replays/${player.sessionKey}/predictions`);
+    const run = (coverage.runs || []).find((r) => r.model_version === coverage.active_model_version);
+    el("panelCoverage").textContent = run
+      ? `${run.laps} laps evaluated under model ${run.model_version}`
+      : "not evaluated yet";
+  } catch (_) { /* coverage is a nicety, not a requirement */ }
+}
 
 async function refreshProjection(lap) {
   if (!player.bundle || !lap) return;
@@ -809,7 +911,8 @@ function renderProjection(projection) {
       <td>${entry.compound ? `<span class="tyre ${entry.compound}">${entry.compound[0]}${entry.tyre_age ?? ""}</span>` : "–"}</td>
       <td class="num">${entry.stops}${entry.stops_owed ? ` +${entry.stops_owed}` : ""}</td>
       <td class="num">${entry.pace_delta_s != null ? (entry.pace_delta_s > 0 ? "+" : "") + entry.pace_delta_s.toFixed(2) : "–"}</td>
-      <td class="num">${entry.projected_delta_s > 0 ? "+" : ""}${entry.projected_delta_s.toFixed(1)}</td>
+      <td class="num">${entry.projected_position === 1 ? "leader"
+        : "+" + (entry.projected_gap_s ?? entry.projected_delta_s).toFixed(1)}</td>
       ${modelLive ? `<td class="num">${entry.model_position ?? "–"}</td>` : ""}
     </tr>`;
   }).join("");
@@ -817,12 +920,13 @@ function renderProjection(projection) {
   body.innerHTML = `<table>
     <thead><tr>
       <th class="num">Proj</th><th>Driver</th><th class="num">Now</th><th>Tyre</th>
-      <th class="num">Stops</th><th class="num">Pace Δ</th><th class="num">To leader</th>
+      <th class="num">Stops</th><th class="num">Pace Δ</th><th class="num">Finish gap</th>
       ${modelLive ? '<th class="num">Model</th>' : ""}
     </tr></thead><tbody>${rows}</tbody></table>`;
 
   const model = projection.model || {};
   el("panelNote").innerHTML = `
+    ${projection.cached ? "" : '<div style="margin-bottom:6px">computed just now and cached</div>'}
     <div class="formula">projected = gap_to_leader − pace_advantage × ${projection.laps_remaining} laps + ${projection.pit_loss_s.toFixed(0)}s × stops_owed</div>
     <div style="margin-top:6px">Ranked on ${projection.basis}. Pace advantage is measured against the field median,
     clamped, and trusted in proportion to how many racing laps have been seen.</div>

@@ -93,6 +93,31 @@ Beside it, where the session is in the database and a model is active for the
 regime, the trained finish-position model's own order over the same lap. Where
 the two disagree, a strategy is about to pay off or fail.
 
+### Evaluated once, not on every scrub
+
+Each lap's projection assembles feature vectors from the whole season's
+aggregates and runs the model over the field — around twenty seconds cold. A
+finished race is a fixed input, so it is evaluated once and kept:
+
+```bash
+curl -X POST http://localhost:8000/replays/11353/predict   # a job, like retraining
+curl http://localhost:8000/replays/11353/predictions        # what has been run
+curl -X DELETE http://localhost:8000/replays/11353/predictions
+```
+
+`app/models/replay_predictor.py` is that pass — the model runner. `app/db/projection_store.py`
+is where the answers live. Rows are keyed by the model version that produced
+them, so promoting a new model does not invalidate anything explicitly: the old
+rows simply stop matching and stay available for comparison. Cold, a lap takes
+about twenty seconds; cached, about 150 ms. **Evaluate race** in the panel runs
+the pass and reports coverage.
+
+The store is deliberately boring — ordinary columns and one JSON payload, no
+SQLite-specific SQL anywhere in it. Moving the whole application to Postgres is a
+connection-string change; if the cache alone outgrows a table, its interface is
+five functions and can be reimplemented over Redis or a key-value store without
+touching a caller.
+
 ## Watching a session live
 
 ```bash
@@ -138,10 +163,11 @@ backend/app/
               replay.py (circuit + playback reconstruction) · seed.py
   features/   transfer.py (the §2 table as code) · engineering.py (pure features) · builder.py
   models/     base.py · qualifying_model.py · race_model.py · registry.py (versioning + gate)
+              replay_predictor.py (evaluate a whole replay, once)
   training/   dataset.py (labelling + matrix) · retrain_qualifying.py · retrain_race.py · jobs.py
   live/       base.py (polling threads) · qualifying_loop.py · race_loop.py · race_control.py
               projection.py (the prediction panel) · broadcast.py (subscriber queues)
-  db/         models.py · database.py
+  db/         models.py · database.py · projection_store.py (the projection cache)
   main.py     REST + WebSocket routes
   cli.py      seed / backfill / status / promote
 frontend/     server.js (static host + dev proxy, stdlib only)
@@ -168,13 +194,15 @@ scripts/      smoke.js (API + websocket) · replay-check.js (replay geometry)
 | GET | `/replays` | Every race that has run, and whether its replay is built |
 | POST | `/replays/{session_key}/build` | Queue a replay build; returns a job |
 | GET | `/replays/{session_key}` | The replay bundle (gzipped) |
-| GET | `/replays/{session_key}/projection?lap=` | Projected finishing order at a lap |
+| GET | `/replays/{session_key}/projection?lap=&fresh=` | Projected finishing order at a lap |
+| POST | `/replays/{session_key}/predict` | Evaluate every lap and cache it; returns a job |
+| GET · DELETE | `/replays/{session_key}/predictions` | Cache coverage · drop it |
 | WS | `/sessions/{id}/live` | `qualifying_update` / `race_update` / `race_control` |
 
 ## Tests
 
 ```bash
-cd backend && .venv/Scripts/python -m pytest        # 111 tests, no network required
+cd backend && .venv/Scripts/python -m pytest        # 124 tests, no network required
 ```
 
 Coverage focuses on the parts that are expensive to get wrong: the transfer table, feature

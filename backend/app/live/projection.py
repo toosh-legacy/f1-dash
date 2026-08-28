@@ -124,7 +124,13 @@ def project_finish(
         )
 
     entries.sort(key=lambda e: e["projected_delta_s"])
+    # Re-zero on the projected winner. The raw figure is a time relative to the
+    # car currently leading, which goes negative for anyone projected to pass
+    # them and reads as nonsense in a finishing order; measured from the
+    # projected winner it is the gap each car is expected to finish behind.
+    winner = entries[0]["projected_delta_s"] if entries else 0.0
     for index, entry in enumerate(entries, start=1):
+        entry["projected_gap_s"] = round(entry["projected_delta_s"] - winner, 2)
         entry["projected_position"] = index
         entry["position_change"] = (
             entry["position"] - index if entry["position"] is not None else None

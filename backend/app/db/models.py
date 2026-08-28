@@ -260,3 +260,43 @@ class RaceControlEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, nullable=False)
 
     __table_args__ = (Index("ix_rc_lookup", "session_id", "created_at"),)
+
+
+class ReplayProjection(Base):
+    """A projected finishing order, computed once and kept.
+
+    Projecting a race means running the trained model over every lap of it, and
+    the feature vectors behind that are assembled from the whole season's
+    aggregates -- expensive enough that recomputing a lap every time someone
+    scrubs past it is the wrong shape. A finished race never changes, so the
+    result is cached here and read back for free.
+
+    The row is keyed by the model version that produced it as well as by the
+    lap: promoting a new model does not overwrite the old projections, it makes
+    them stale, and the store simply misses on them.
+
+    Stored against OpenF1's session key rather than a local session id, because
+    a replay can be built for a race the database has never seen.
+    """
+
+    __tablename__ = "replay_projections"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    openf1_session_key: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    lap_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Null when no trained model was active and the projection is arithmetic only.
+    model_version: Mapped[int | None] = mapped_column(Integer)
+    regs_regime: Mapped[str] = mapped_column(
+        String(16), nullable=False, default=settings.CURRENT_REGS_REGIME
+    )
+    payload: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "openf1_session_key", "lap_number", "model_version", name="uq_replay_projection"
+        ),
+        Index("ix_replay_projection_lookup", "openf1_session_key", "model_version"),
+    )
