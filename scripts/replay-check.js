@@ -56,15 +56,20 @@ function pointAt(path, progress) {
     `${drivers.length} cars`);
 
   // Cars must move. A stuck car and a moving car look identical in one frame.
-  const sample = frames.filter((frame) => Object.keys(frame.cars).length > 5);
-  const early = sample[Math.floor(sample.length * 0.3)];
-  const later = sample[Math.floor(sample.length * 0.3) + 30];
+  // The sample has to be taken under green: a race can be red-flagged with the
+  // whole field stationary on the grid, and that is the data being right.
+  const sample = frames.filter(
+    (frame) => frame.flag === "green" && Object.keys(frame.cars).length > 5
+  );
+  const start = Math.floor(sample.length * 0.5);
+  const early = sample[start];
+  const later = sample[start + 30];
   const moved = Object.keys(early.cars).filter((number) => {
     const a = early.cars[number], b = later ? later.cars[number] : undefined;
     return typeof a === "number" && typeof b === "number" && Math.abs(b - a) > 1;
   });
   check("cars move between frames", moved.length > 10,
-    `${moved.length} of ${Object.keys(early.cars).length} cars advanced over 30 s`);
+    `${moved.length} of ${Object.keys(early.cars).length} cars advanced over 30 s of green`);
 
   // Every on-track progress value has to resolve to a point on the outline.
   const onPath = Object.values(early.cars)

@@ -62,7 +62,10 @@ async function checkDashboard() {
   try {
     const response = await fetch(`${WEB}/`);
     const html = await response.text();
-    report("dashboard html", response.ok && html.includes("F1 Live Prediction Dashboard"));
+    // The page is a map, a replay library and a live view; assert all three
+    // are served rather than matching a title that is free to change.
+    const parts = ['id="map"', 'id="view-replays"', 'id="view-live"'];
+    report("dashboard html", response.ok && parts.every((part) => html.includes(part)));
   } catch (error) {
     report("dashboard html", false, `${error.message} (is \`npm start\` running?)`);
   }
