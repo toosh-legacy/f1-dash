@@ -22,12 +22,14 @@ from sqlalchemy.orm import Session as DBSession
 
 from app import schemas
 from app.config import settings
+from app.data import replay
 from app.data import seed as seeding
 from app.data.fastf1_client import FastF1Client, FastF1Unavailable
 from app.db import models as m
 from app.db.database import get_db, init_db
 from app.live.base import loops
 from app.live.broadcast import broadcaster
+from app.live import projection
 from app.live.qualifying_loop import QualifyingLoop
 from app.live.race_loop import RaceLoop
 from app.models import registry
@@ -371,6 +373,80 @@ def stop_live_loop(session_id: int) -> dict[str, Any]:
     if not stopped:
         raise HTTPException(status_code=404, detail=f"no live loop running for session {session_id}")
     return {"session_id": session_id, "stopped": True}
+
+
+# -- replays -----------------------------------------------------------------
+
+
+@app.get("/replays", tags=["replays"])
+def list_replays(year: int | None = None, sprints: bool = True) -> list[dict[str, Any]]:
+    """Every race that has already run, and whether its replay is built."""
+    try:
+        rounds = replay.catalogue(year, include_sprints=sprints)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"replay catalogue unavailable: {exc}")
+    return [entry.as_dict() for entry in rounds]
+
+
+@app.post("/replays/{session_key}/build", response_model=schemas.JobOut, tags=["replays"])
+def build_replay(session_key: int, force: bool = False) -> dict[str, Any]:
+    """Queue a replay build.
+
+    Fetching a session's position feed is one request per car over tens of
+    thousands of samples, so it goes to the same background pool retraining
+    uses and the caller gets a job record straight back.
+    """
+    if replay.is_cached(session_key) and not force:
+        return jobs.jobs.create("replay", None).as_dict() | {
+            "status": "succeeded",
+            "result": {"session_key": session_key, "cached": True},
+        }
+
+    def run(progress: jobs.ProgressReporter) -> dict[str, Any]:
+        bundle = replay.build_bundle(
+            session_key,
+            force=force,
+            progress=lambda stage, detail=None: progress(stage, detail),
+        )
+        return {
+            "session_key": session_key,
+            "frames": len(bundle["frames"]),
+            "total_laps": bundle["total_laps"],
+            "bytes": replay.bundle_path(session_key).stat().st_size,
+        }
+
+    return jobs.submit("replay", None, run).as_dict()
+
+
+@app.get("/replays/{session_key}", tags=["replays"])
+def get_replay(session_key: int) -> FileResponse:
+    """The built bundle.
+
+    Served as the stored gzip rather than re-encoded: it is several megabytes
+    of JSON uncompressed and the browser unwraps it for free.
+    """
+    path = replay.bundle_path(session_key)
+    if not path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"replay for session {session_key} is not built yet; POST to /replays/{session_key}/build",
+        )
+    return FileResponse(
+        str(path),
+        media_type="application/json",
+        headers={"content-encoding": "gzip", "cache-control": "public, max-age=86400"},
+    )
+
+
+@app.get("/replays/{session_key}/projection", tags=["replays"])
+def replay_projection(
+    session_key: int, lap: int = Query(ge=1), db: DBSession = Depends(get_db)
+) -> dict[str, Any]:
+    """Where the race is heading as of ``lap`` -- the prediction panel's data."""
+    bundle = replay.load_bundle(session_key)
+    if bundle is None:
+        raise HTTPException(status_code=404, detail=f"replay for session {session_key} is not built yet")
+    return projection.project_finish(bundle, lap, db=db)
 
 
 # -- websocket ---------------------------------------------------------------

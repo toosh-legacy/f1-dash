@@ -169,6 +169,19 @@ class OpenF1Client:
     def car_data(self, session_key: int, **filters: Any) -> list[dict[str, Any]]:
         return self._get("car_data", session_key=session_key, **filters)
 
+    def pit(self, session_key: int, **filters: Any) -> list[dict[str, Any]]:
+        return self._get("pit", session_key=session_key, **filters)
+
+    def location(self, session_key: int, driver_number: int, **filters: Any) -> list[dict[str, Any]]:
+        """Track position samples (~3.7 Hz) for one car.
+
+        Always scoped to a single driver: an unfiltered query spans the whole
+        field for the whole session and is refused.
+        """
+        return self._get(
+            "location", session_key=session_key, driver_number=driver_number, **filters
+        )
+
     def weather(self, session_key: int) -> dict[str, Any] | None:
         rows = self._get("weather", session_key=session_key)
         return rows[-1] if rows else None

@@ -46,6 +46,14 @@ class Settings:
     LEAKAGE_SUSPICION_SCORE: float = float(os.getenv("F1_LEAKAGE_SCORE", "0.98"))
     AUTO_PROMOTE: bool = os.getenv("F1_AUTO_PROMOTE", "false").lower() == "true"
 
+    # --- Replays ------------------------------------------------------------
+    # Built replay bundles are large and immutable, so they live on disk rather
+    # than in the database and are served straight from the cache.
+    REPLAY_DIR: Path = Path(os.getenv("F1_REPLAY_DIR", str(PROJECT_ROOT / "replays")))
+    # Playback frame rate. 1 Hz keeps a two-hour race under a few MB; the
+    # dashboard interpolates between frames for smooth motion.
+    REPLAY_FRAME_HZ: float = float(os.getenv("F1_REPLAY_HZ", "1"))
+
     # --- API ----------------------------------------------------------------
     CORS_ORIGINS: list[str] = [
         o.strip() for o in os.getenv("F1_CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()
@@ -54,6 +62,7 @@ class Settings:
     def ensure_dirs(self) -> None:
         self.FASTF1_CACHE_DIR.mkdir(parents=True, exist_ok=True)
         self.MODEL_ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+        self.REPLAY_DIR.mkdir(parents=True, exist_ok=True)
 
 
 @lru_cache(maxsize=1)

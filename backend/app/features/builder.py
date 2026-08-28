@@ -299,6 +299,31 @@ class FeatureBuilder:
             live=live or LiveState(),
         )
 
+    def build_vector(
+        self,
+        session: m.Session,
+        driver: m.Driver,
+        context_label: str,
+        *,
+        live: LiveState | None = None,
+        tyre_deg_rate: float | None = None,
+    ) -> FeatureVector:
+        """Compute a vector without recording it.
+
+        Used where a prediction is exploratory rather than accountable -- a
+        what-if over a finished session, say. Anything that will be served as a
+        prediction goes through :meth:`build_and_store`, so the inputs behind it
+        stay auditable.
+        """
+        ctx = self.context_for(session, driver, live=live, tyre_deg_rate=tyre_deg_rate)
+        vector = build_feature_vector(ctx, context_label)
+        if vector.fallbacks_used:
+            log.debug(
+                "session %s driver %s context %s used fallbacks: %s",
+                session.id, driver.id, context_label, ", ".join(vector.fallbacks_used),
+            )
+        return vector
+
     def build_and_store(
         self,
         session: m.Session,
@@ -309,13 +334,9 @@ class FeatureBuilder:
         tyre_deg_rate: float | None = None,
     ) -> FeatureVector:
         """Compute a vector and upsert it as a :class:`FeatureSnapshot`."""
-        ctx = self.context_for(session, driver, live=live, tyre_deg_rate=tyre_deg_rate)
-        vector = build_feature_vector(ctx, context_label)
-        if vector.fallbacks_used:
-            log.debug(
-                "session %s driver %s context %s used fallbacks: %s",
-                session.id, driver.id, context_label, ", ".join(vector.fallbacks_used),
-            )
+        vector = self.build_vector(
+            session, driver, context_label, live=live, tyre_deg_rate=tyre_deg_rate
+        )
 
         existing = self.db.scalar(
             select(m.FeatureSnapshot).where(
