@@ -10,6 +10,7 @@ venv/
 backend/f1_dashboard.db*
 backend/.fastf1_cache/
 backend/model_artifacts/
+backend/replays/
 .env
 
 # Node
