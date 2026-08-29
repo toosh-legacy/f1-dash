@@ -81,42 +81,63 @@ cache.
 ## The prediction panel
 
 The tab pinned to the right edge answers "who finishes where from here?" at the
-lap under the playhead, two ways that are deliberately not blended:
+lap under the playhead, two ways that are deliberately not blended.
+
+**The projection** starts from where the cars actually are — track position is
+the strongest single predictor of a finishing order — and corrects it with the
+time each car is expected to gain or lose from here:
 
 ```
-projected = gap_to_leader - pace_advantage x laps_remaining + pit_loss x stops_owed
+delta = gap_to_leader - pace_advantage x laps_remaining x conversion
+        + pit_loss x stops_owed
+order = track position, weighted towards the projection by how much race is
+        left for its corrections to come true
 ```
 
-Arithmetic, with every term shown next to the result: current position, rolling
-pace against the field median, tyre and age, stops taken and stops still owed.
-Beside it, where the session is in the database and a model is active for the
-regime, the trained finish-position model's own order over the same lap. Where
-the two disagree, a strategy is about to pay off or fail.
+Every term is shown next to the result. Pace is measured against the quickest
+quarter of the field rather than the median (half the grid is slower than the
+median by construction, so measuring against it makes everyone look fast), over
+green laps only. `conversion` damps the correction by how hard the circuit is
+to overtake at: half a second a lap at Monaco buys a closer view of a gearbox.
 
-### Evaluated once, not on every scrub
+**The model** is the trained finish-position estimator, run over the same lap
+through the engineered feature vector, shown in its own column wherever the
+session is in the database and a model is active for the regime. Where the two
+disagree, a strategy is about to pay off or fail.
 
-Each lap's projection assembles feature vectors from the whole season's
-aggregates and runs the model over the field — around twenty seconds cold. A
-finished race is a fixed input, so it is evaluated once and kept:
+### How wrong is it?
+
+A projected finishing order is unfalsifiable while a race runs, so the panel
+quotes its own track record instead. Every stored projection is scored against
+the classification of the race it was made in, alongside the trained model and
+the baseline both have to beat — reading the running order and leaving it alone:
 
 ```bash
-curl -X POST http://localhost:8000/replays/11353/predict   # a job, like retraining
-curl http://localhost:8000/replays/11353/predictions        # what has been run
-curl -X DELETE http://localhost:8000/replays/11353/predictions
+curl http://localhost:8000/replays/11353/accuracy   # one race, lap by lap
+curl http://localhost:8000/predictions/accuracy     # everything evaluated
 ```
 
-`app/models/replay_predictor.py` is that pass — the model runner. `app/db/projection_store.py`
-is where the answers live. Rows are keyed by the model version that produced
-them, so promoting a new model does not invalidate anything explicitly: the old
-rows simply stop matching and stay available for comparison. Cold, a lap takes
-about twenty seconds; cached, about 150 ms. **Evaluate race** in the panel runs
-the pass and reports coverage.
+Measured over 194 laps of three finished races, mean absolute error in
+finishing positions:
 
-The store is deliberately boring — ordinary columns and one JSON payload, no
-SQLite-specific SQL anywhere in it. Moving the whole application to Postgres is a
-connection-string change; if the cache alone outgrows a table, its interface is
-five functions and can be reimplemented over Redis or a key-value store without
-touching a caller.
+| stage | track position | projection | model |
+|---|---|---|---|
+| opening quarter | **2.81** | 2.88 | 3.58 |
+| second quarter | 2.49 | **2.39** | 3.42 |
+| third quarter | 2.24 | **2.22** | 3.31 |
+| final quarter | 1.40 | **1.08** | 2.64 |
+| overall | 2.21 | **2.12** | 3.23 |
+
+This measure is what the project is for, and it has already earned its keep
+twice. It caught the projection's first version, which was *worse* than doing
+nothing and got worse as races ran on. And it settled how far to trust the
+correction: sweeping the weight showed 0.15 is the best value and anything
+heavier makes the order worse — including trusting the pit-stop term at full
+strength, which looked like arithmetic on a known pit loss and scored 2.76,
+because *whether a car still owes a stop* is inferred from a compound-life
+table rather than observed.
+
+The trained model is currently the worst of the three. The panel says so.
 
 ## Watching a session live
 
@@ -164,10 +185,12 @@ backend/app/
   features/   transfer.py (the §2 table as code) · engineering.py (pure features) · builder.py
   models/     base.py · qualifying_model.py · race_model.py · registry.py (versioning + gate)
               replay_predictor.py (evaluate a whole replay, once)
+              calibration.py (score the predictions against what happened)
   training/   dataset.py (labelling + matrix) · retrain_qualifying.py · retrain_race.py · jobs.py
   live/       base.py (polling threads) · qualifying_loop.py · race_loop.py · race_control.py
               projection.py (the prediction panel) · broadcast.py (subscriber queues)
   db/         models.py · database.py · projection_store.py (the projection cache)
+              replay_store.py (built replays, shared through the database)
   main.py     REST + WebSocket routes
   cli.py      seed / backfill / status / promote
 frontend/     server.js (static host + dev proxy, stdlib only)
@@ -179,6 +202,7 @@ scripts/      smoke.js (API + websocket) · replay-check.js (replay geometry)
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/health` | Regime, season, active models, running loops |
+| GET | `/now` | What Connect opens on: live session, next session, last replay |
 | GET | `/circuits`, `/drivers` | Seeded reference data |
 | POST | `/seed` | Seed calendar and entries from real season data |
 | GET | `/sessions?year=&circuit_id=&session_type=` | List/filter sessions |
@@ -197,12 +221,14 @@ scripts/      smoke.js (API + websocket) · replay-check.js (replay geometry)
 | GET | `/replays/{session_key}/projection?lap=&fresh=` | Projected finishing order at a lap |
 | POST | `/replays/{session_key}/predict` | Evaluate every lap and cache it; returns a job |
 | GET · DELETE | `/replays/{session_key}/predictions` | Cache coverage · drop it |
+| GET | `/replays/{session_key}/accuracy` | Score one race's projections against the result |
+| GET | `/predictions/accuracy` | The same measure across every evaluated replay |
 | WS | `/sessions/{id}/live` | `qualifying_update` / `race_update` / `race_control` |
 
 ## Tests
 
 ```bash
-cd backend && .venv/Scripts/python -m pytest        # 127 tests, no network required
+cd backend && .venv/Scripts/python -m pytest        # 146 tests, no network required
 ```
 
 Coverage focuses on the parts that are expensive to get wrong: the transfer table, feature

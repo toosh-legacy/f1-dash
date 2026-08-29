@@ -11,13 +11,14 @@ import enum
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     DateTime,
     Float,
     ForeignKey,
     Index,
     Integer,
-    JSON,
+    LargeBinary,
     String,
     UniqueConstraint,
 )
@@ -299,4 +300,41 @@ class ReplayProjection(Base):
             "openf1_session_key", "lap_number", "model_version", name="uq_replay_projection"
         ),
         Index("ix_replay_projection_lookup", "openf1_session_key", "model_version"),
+    )
+
+
+class ReplayBundle(Base):
+    """A built replay, kept where everyone can reach it.
+
+    Building one costs a request per car against a rate-limited API and several
+    minutes of reconstruction, and the result never changes -- so it should be
+    built once for everybody, not once per machine. The gzipped bundle lives
+    here as a blob; a local file alongside it is only a read cache, and a
+    server that has never built this race hydrates its file from this row.
+
+    The metadata is duplicated out of the payload so the replay catalogue can
+    say what is available without unpacking megabytes of JSON to find out.
+    """
+
+    __tablename__ = "replay_bundles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    openf1_session_key: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    #: Bundle format version; a row from an older format is stale, not wrong.
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    payload: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    circuit: Mapped[str | None] = mapped_column(String(128))
+    session_name: Mapped[str | None] = mapped_column(String(64))
+    date_start: Mapped[str | None] = mapped_column(String(40))
+    total_laps: Mapped[int | None] = mapped_column(Integer)
+    frames: Mapped[int | None] = mapped_column(Integer)
+
+    built_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        UniqueConstraint("openf1_session_key", "version", name="uq_replay_bundle"),
     )

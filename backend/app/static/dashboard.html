@@ -18,6 +18,9 @@
   --amber: #f0b429;
   --red: #ef4b4b;
   --blue: #5ac8fa;
+  --ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI",
+        Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, monospace;
 }
 * { box-sizing: border-box; }
 html, body { height: 100%; }
@@ -25,41 +28,51 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font: 400 14px/1.55 var(--ui);
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
 }
-h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.015em; }
 h2 { font-size: 15px; }
-h3 { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
-button, select { font: inherit; color: inherit; }
+button, select, input { font: inherit; color: inherit; }
 button {
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px;
-  padding: 6px 12px; cursor: pointer; transition: background .15s, border-color .15s;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
+  padding: 7px 13px; cursor: pointer; font-weight: 500;
+  transition: background .15s, border-color .15s, color .15s;
 }
 button:hover:not(:disabled) { background: #23272e; border-color: #39404a; }
 button:disabled { opacity: .45; cursor: default; }
-button.primary { background: var(--mustard); border-color: var(--mustard); color: #17130a; font-weight: 600; }
+button.primary { background: var(--mustard); border-color: var(--mustard); color: #17130a; font-weight: 650; }
 button.primary:hover:not(:disabled) { background: #efc457; }
-select {
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px;
+select, input[type=search] {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px;
 }
+input[type=search]::placeholder { color: #6c727a; }
+input[type=search]:focus { outline: none; border-color: var(--mustard); }
 
 /* ---------- shell ---------- */
 header {
-  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
-  padding: 12px 20px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  padding: 11px 20px; border-bottom: 1px solid var(--line);
   background: linear-gradient(180deg, #131519, #0e1013);
   position: sticky; top: 0; z-index: 30;
 }
-.brand { display: flex; align-items: baseline; gap: 10px; }
-.brand b { font-size: 16px; letter-spacing: -0.02em; }
+.brand { display: flex; align-items: baseline; gap: 10px; cursor: pointer; }
+.brand b { font-size: 16px; font-weight: 700; letter-spacing: -0.03em; }
 .brand span { color: var(--muted); font-size: 12px; }
-.tabs { display: flex; gap: 4px; margin-left: 8px; }
+
+/* The tab strip is the main navigation, so it is set like navigation: a
+   heavier face with open tracking, and a lit underline on the active tab
+   rather than a filled box, which reads as a control rather than a chip. */
+.tabs { display: flex; gap: 2px; margin-left: 6px; }
 .tab {
-  background: transparent; border: 1px solid transparent; color: var(--muted);
-  padding: 6px 14px; border-radius: 7px;
+  background: transparent; border: none; border-bottom: 2px solid transparent;
+  border-radius: 0; color: var(--muted);
+  padding: 7px 14px 6px; font-size: 13px; font-weight: 600; letter-spacing: .015em;
 }
-.tab.active { background: var(--panel-2); border-color: var(--line); color: var(--text); }
+.tab:hover:not(.active) { background: transparent; color: #cdd3da; }
+.tab.active { color: var(--text); border-bottom-color: var(--mustard); background: transparent; }
+
 .spacer { flex: 1; }
 .status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: #4a4f57; }
@@ -70,20 +83,41 @@ header {
   border: 1px solid var(--line); background: var(--panel-2); color: var(--muted);
 }
 
-main { padding: 18px 20px 40px; max-width: 1500px; margin: 0 auto; }
+main { padding: 18px 20px 40px; max-width: 1560px; margin: 0 auto; }
 .view[hidden] { display: none; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
 .empty { color: var(--muted); padding: 22px; text-align: center; }
 
+/* ---------- entrance ---------- */
+/* Scoped to :not([hidden]) deliberately: an id rule's display beats the
+   attribute selector that hides views, so without this the entrance stays on
+   screen underneath whatever view is meant to have replaced it. */
+#view-entrance:not([hidden]) { display: grid; place-items: center; min-height: 68vh; }
+.entrance { text-align: center; max-width: 660px; }
+.entrance h1 {
+  font-size: clamp(32px, 6vw, 52px); font-weight: 700; letter-spacing: -0.04em;
+  line-height: 1.05; margin-bottom: 12px;
+}
+.entrance h1 em { font-style: normal; color: var(--mustard); }
+.entrance p { color: var(--muted); font-size: 15px; margin: 0 0 26px; }
+.entrance .target {
+  display: inline-flex; align-items: center; gap: 10px; margin-bottom: 22px;
+  padding: 10px 16px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--panel); font-size: 13px;
+}
+.entrance .target b { font-weight: 650; }
+#connectBig { font-size: 15px; padding: 12px 30px; border-radius: 10px; }
+.entrance .aside { margin-top: 22px; color: #6c727a; font-size: 12px; }
+
 /* ---------- map ---------- */
-.map-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; }
-@media (max-width: 1100px) { .map-grid { grid-template-columns: 1fr; } }
+.map-grid { display: grid; grid-template-columns: minmax(0, 1fr) 370px; gap: 16px; align-items: start; }
+@media (max-width: 1150px) { .map-grid { grid-template-columns: 1fr; } }
 
 .map-head {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: 12px 16px; border-bottom: 1px solid var(--line);
 }
-.map-head .where { font-size: 15px; font-weight: 600; }
+.map-head .where { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
 .map-head .when { color: var(--muted); font-size: 12px; }
 .flag {
   font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
@@ -95,11 +129,7 @@ main { padding: 18px 20px 40px; max-width: 1500px; margin: 0 auto; }
 .flag.red_flag { color: var(--red); border-color: #6d2222; background: #2a1212; }
 
 #mapWrap { position: relative; background: radial-gradient(120% 100% at 50% 0%, #14161a, #0b0c0e 70%); }
-svg#map { display: block; width: 100%; height: min(62vh, 620px); }
-/* The circuit is drawn as a road, not a line: one wide mustard stroke with a
-   narrower background-coloured stroke laid over it, which leaves a lit edge
-   down each side. Underneath, a dull wash and a tight halo give it the glow --
-   soft, not neon, so the outline reads as lit rather than as a light source. */
+svg#map { display: block; width: 100%; height: min(64vh, 660px); }
 #trackGlow { fill: none; stroke: #a8842f; stroke-width: 30; stroke-linejoin: round;
   stroke-linecap: round; opacity: .13; filter: blur(11px); }
 #trackHalo { fill: none; stroke: #b8912f; stroke-width: 19; stroke-linejoin: round;
@@ -116,8 +146,6 @@ svg#map { display: block; width: 100%; height: min(62vh, 620px); }
 .car-dot { r: 13; stroke: #0b0c0e; stroke-width: 2; }
 .car-label { font-size: 12px; font-weight: 800; fill: #0b0c0e; text-anchor: middle;
   dominant-baseline: central; pointer-events: none; letter-spacing: -0.02em; }
-/* The surname under the dot: the three-letter code is the broadcast name, but
-   it is not much use to anyone who does not already know the grid. */
 .car-name { font-size: 10.5px; font-weight: 700; fill: #e8eaed; text-anchor: middle;
   paint-order: stroke; stroke: #0b0c0e; stroke-width: 3.5; stroke-linejoin: round;
   pointer-events: none; }
@@ -125,17 +153,30 @@ svg#map { display: block; width: 100%; height: min(62vh, 620px); }
 .car-tag { font-size: 9.5px; font-weight: 700; fill: var(--amber); text-anchor: middle;
   paint-order: stroke; stroke: #0b0c0e; stroke-width: 3; }
 .car.selected .car-dot { stroke: #fff; stroke-width: 2.5; }
-/* A selected car keeps its name whatever the traffic around it. */
 .selected .car-name { fill: #fff; }
 
 /* ---------- transport ---------- */
 .transport { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); }
-.transport .clock { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 12px; min-width: 96px; }
+.transport .clock { font-family: var(--mono); font-size: 12px; color: var(--muted); min-width: 104px; }
 .transport input[type=range] { flex: 1; accent-color: var(--mustard); }
-.lapcount { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 92px; }
+.lapcount { font-variant-numeric: tabular-nums; font-weight: 650; min-width: 96px; }
 
-/* ---------- order list ---------- */
-.order { max-height: min(62vh, 620px); overflow: auto; }
+/* ---------- side column ---------- */
+.side { display: flex; flex-direction: column; max-height: min(80vh, 860px); }
+.side-tabs { display: flex; gap: 2px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); }
+.side-tab {
+  background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 0;
+  color: var(--muted); font-size: 12.5px; font-weight: 600; letter-spacing: .015em;
+  padding: 7px 12px 8px;
+}
+.side-tab.active { color: var(--text); border-bottom-color: var(--mustard); }
+.side-body { overflow: auto; flex: 1; }
+/* The projection table is wider than the column it lives in, so it scrolls on
+   its own rather than clipping the model's answer off the right-hand edge. */
+#panelBody { overflow-x: auto; }
+#panelBody th, #panelBody td { padding: 8px 7px; white-space: nowrap; }
+.side-foot { border-top: 1px solid var(--line); padding: 11px 14px; color: var(--muted); font-size: 12px; }
+
 .order-row {
   display: grid; grid-template-columns: 26px 8px 1fr auto; gap: 8px; align-items: center;
   padding: 7px 12px; border-bottom: 1px solid #1c1f24; cursor: pointer;
@@ -144,7 +185,7 @@ svg#map { display: block; width: 100%; height: min(62vh, 620px); }
 .order-row .pos { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
 .order-row .bar { width: 4px; height: 20px; border-radius: 2px; }
 .order-row .who { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.order-row .who b { font-size: 13px; }
+.order-row .who b { font-size: 13px; font-weight: 650; }
 .order-row .who small { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .order-row .gap { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
 .tyre { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); }
@@ -154,41 +195,35 @@ svg#map { display: block; width: 100%; height: min(62vh, 620px); }
 .tyre.INTERMEDIATE { color: var(--green); border-color: #1e5c37; }
 .tyre.WET { color: var(--blue); border-color: #1c4a63; }
 
+/* ---------- the model's read ---------- */
+.thinking { padding: 14px 14px 4px; }
+.thinking h3 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .09em;
+  color: var(--muted); margin-bottom: 9px; font-weight: 600; }
+.thinking ul { margin: 0; padding-left: 17px; }
+.thinking li { margin-bottom: 7px; font-size: 13px; }
+.thinking li b { font-weight: 650; }
+.askBtn { margin: 4px 14px 12px; }
+
 /* ---------- tables ---------- */
 table { width: 100%; border-collapse: collapse; }
-th, td { padding: 8px 12px; text-align: left; border-bottom: 1px solid #1c1f24; }
-th { color: var(--muted); font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #1c1f24; }
+th { color: var(--muted); font-weight: 550; font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tbody tr:hover { background: var(--panel-2); }
 .up { color: var(--green); } .down { color: var(--red); }
+.formula { font-family: var(--mono); font-size: 11px; color: #b9bfc7; }
 
 /* ---------- replay library ---------- */
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.searchbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+.searchbar input[type=search] { flex: 1; max-width: 460px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(255px, 1fr)); gap: 12px; }
 .replay-card { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
 .replay-card .top { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
-.replay-card b { font-size: 15px; }
+.replay-card b { font-size: 15px; font-weight: 650; }
 .replay-card .meta { color: var(--muted); font-size: 12px; }
-.replay-card .actions { display: flex; gap: 8px; margin-top: auto; }
+.replay-card .actions { display: flex; gap: 8px; margin-top: auto; align-items: center; }
 .badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .badge.ready { color: var(--green); border-color: #1e5c37; background: #10261a; }
-
-/* ---------- prediction panel ---------- */
-#panelToggle {
-  position: fixed; right: 0; top: 50%; transform: translateY(-50%) ; z-index: 40;
-  border-radius: 10px 0 0 10px; border-right: none; padding: 14px 10px;
-  writing-mode: vertical-rl; letter-spacing: .1em; font-size: 11px; text-transform: uppercase;
-  background: var(--mustard); color: #17130a; border-color: var(--mustard); font-weight: 700;
-}
-#panel {
-  position: fixed; top: 0; right: 0; height: 100%; width: min(560px, 94vw); z-index: 45;
-  background: #101216; border-left: 1px solid var(--line); box-shadow: -24px 0 60px rgba(0,0,0,.5);
-  transform: translateX(100%); transition: transform .25s ease; display: flex; flex-direction: column;
-}
-#panel.open { transform: translateX(0); }
-.panel-head { display: flex; align-items: center; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
-.panel-body { overflow: auto; flex: 1; }
-.panel-note { padding: 12px 16px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
-.formula { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #b9bfc7; }
 
 /* ---------- live view ---------- */
 .stack { display: grid; gap: 16px; }
@@ -196,10 +231,10 @@ tbody tr:hover { background: var(--panel-2); }
 .banner { display: none; margin: 12px 16px; padding: 10px 12px; border-radius: 8px;
   background: #2a2110; border: 1px solid #6b5314; color: var(--amber); font-size: 13px; }
 .banner.on { display: block; }
-#log { max-height: 220px; overflow: auto; padding: 10px 16px; font-family: ui-monospace, Menlo, monospace;
+#log { max-height: 220px; overflow: auto; padding: 10px 16px; font-family: var(--mono);
   font-size: 11.5px; color: var(--muted); }
 #log div { padding: 2px 0; border-bottom: 1px solid #17191d; }
-footer { color: var(--muted); font-size: 12px; padding: 24px 20px 40px; max-width: 1500px; margin: 0 auto;
+footer { color: var(--muted); font-size: 12px; padding: 24px 20px 40px; max-width: 1560px; margin: 0 auto;
   border-top: 1px solid var(--line); display: flex; gap: 22px; flex-wrap: wrap; }
 footer b { color: #c6ccd3; font-weight: 600; }
 </style>
@@ -207,9 +242,10 @@ footer b { color: #c6ccd3; font-weight: 600; }
 <body>
 
 <header>
-  <div class="brand"><b>F1 2026</b><span>live prediction dashboard</span></div>
+  <div class="brand" id="brand"><b>F1 2026</b><span>live prediction dashboard</span></div>
   <div class="tabs">
-    <button class="tab active" data-view="map">Race map</button>
+    <button class="tab" data-view="entrance">Start</button>
+    <button class="tab active" data-view="dash">Race dash</button>
     <button class="tab" data-view="replays">Replays</button>
     <button class="tab" data-view="live">Live session</button>
   </div>
@@ -219,29 +255,39 @@ footer b { color: #c6ccd3; font-weight: 600; }
 </header>
 
 <main>
-  <!-- ===================== RACE MAP ===================== -->
-  <section class="view" id="view-map">
+  <!-- ===================== ENTRANCE ===================== -->
+  <section class="view" id="view-entrance" hidden>
+    <div class="entrance">
+      <h1>Watch the race<br /><em>and what the model makes of it</em></h1>
+      <p>Per-car predictions on two clocks: a model retrained after each session,
+         and inference that runs while the cars are on track.</p>
+      <div class="target" id="connectTarget"><span class="dot"></span><span>finding the session…</span></div>
+      <div><button id="connectBig" class="primary">Connect</button></div>
+      <div class="aside" id="connectAside"></div>
+    </div>
+  </section>
+
+  <!-- ===================== RACE DASH ===================== -->
+  <section class="view" id="view-dash">
     <div class="map-grid">
       <div class="card">
         <div class="map-head">
           <div>
-            <div class="where" id="mapWhere">loading the last race…</div>
+            <div class="where" id="mapWhere">loading…</div>
             <div class="when" id="mapWhen">—</div>
           </div>
           <div class="spacer"></div>
+          <button id="askModel">What is the model thinking?</button>
           <span class="flag green" id="flagChip">green</span>
-          <span class="pill" id="cachePill">—</span>
         </div>
 
         <div id="mapWrap">
-          <svg id="map" viewBox="0 0 1000 620" preserveAspectRatio="xMidYMid meet">
+          <svg id="map" viewBox="0 0 1000 640" preserveAspectRatio="xMidYMid meet">
             <path id="trackGlow" /><path id="trackHalo" />
             <path id="pitLine" /><path id="pitSurface" />
             <path id="trackLine" /><path id="trackSurface" />
             <line id="startLine" />
             <g id="cars"></g>
-            <!-- Names ride above every dot: a name half-covered by the car
-                 behind is worse than no name at all. -->
             <g id="carLabels"></g>
           </svg>
           <div class="empty" id="mapEmpty" hidden>No replay loaded.</div>
@@ -262,9 +308,27 @@ footer b { color: #c6ccd3; font-weight: 600; }
         </div>
       </div>
 
-      <div class="card">
-        <div class="section-head"><h2>Running order</h2><span class="spacer"></span><span class="pill" id="orderLap">—</span></div>
-        <div class="order" id="order"><div class="empty">Waiting for the replay.</div></div>
+      <div class="card side">
+        <div class="side-tabs">
+          <button class="side-tab active" data-side="order">Running order</button>
+          <button class="side-tab" data-side="prediction">Prediction</button>
+        </div>
+
+        <div class="side-body" id="sideOrder">
+          <div id="order"><div class="empty">Waiting for the replay.</div></div>
+        </div>
+
+        <div class="side-body" id="sidePrediction" hidden>
+          <div class="thinking" id="thinking"><h3>What the model is thinking</h3></div>
+          <button class="askBtn" id="askAgain">Ask again for this lap</button>
+          <div id="panelBody"></div>
+        </div>
+
+        <div class="side-foot">
+          <span class="pill" id="panelCoverage">—</span>
+          <div id="panelAccuracy" style="margin-top:8px;color:#c6ccd3"></div>
+          <div id="panelNote" style="margin-top:8px"></div>
+        </div>
       </div>
     </div>
 
@@ -276,10 +340,10 @@ footer b { color: #c6ccd3; font-weight: 600; }
 
   <!-- ===================== REPLAYS ===================== -->
   <section class="view" id="view-replays" hidden>
-    <div class="section-head" style="padding-left:0;border:none">
-      <h2>Every race that has run this season</h2>
-      <span class="spacer"></span>
+    <div class="searchbar">
+      <input type="search" id="replaySearch" placeholder="Search a race — circuit, country, month…" autocomplete="off" />
       <span class="pill" id="replayCount">—</span>
+      <span class="spacer"></span>
       <button id="refreshReplays">Refresh</button>
     </div>
     <div class="grid" id="replayGrid"><div class="empty">Loading the season…</div></div>
@@ -291,7 +355,7 @@ footer b { color: #c6ccd3; font-weight: 600; }
       <select id="sessionSelect"><option value="">loading sessions…</option></select>
       <button id="connectBtn">Connect</button>
       <span class="spacer"></span>
-      <span class="pill" id="liveHint">predictions stream over a websocket</span>
+      <span class="pill">predictions stream over a websocket</span>
     </div>
 
     <div class="stack">
@@ -338,30 +402,14 @@ footer b { color: #c6ccd3; font-weight: 600; }
   <div><b>Race predictions are gated off green.</b> Safety car, VSC and red flag mark them low-confidence.</div>
 </footer>
 
-<button id="panelToggle">Prediction</button>
-<aside id="panel">
-  <div class="panel-head">
-    <h2>Projected finish</h2>
-    <span class="pill" id="panelLap">—</span>
-    <span class="spacer"></span>
-    <button id="evaluateBtn" title="Run the model over every lap and cache it">Evaluate race</button>
-    <button id="panelClose">Close</button>
-  </div>
-  <div class="panel-body" id="panelBody"><div class="empty">Load a replay to project a finishing order.</div></div>
-  <div class="panel-note">
-    <span class="pill" id="panelCoverage">—</span>
-    <div id="panelNote" style="margin-top:8px"></div>
-  </div>
-</aside>
-
 <script>
 "use strict";
 
 /* ==========================================================================
- * The dashboard has two clocks, like the backend it talks to. The replay
- * player runs on its own wall clock over a downloaded bundle, and the live
- * view runs on the server's websocket. Nothing here ever asks for a model to
- * be retrained; that is a background job on the server by design.
+ * Two clocks, like the backend. The replay player runs on its own wall clock
+ * over a downloaded bundle; the live view runs on the server's websocket.
+ * Nothing here ever asks for a model to be retrained -- that is a background
+ * job on the server by design.
  * ====================================================================== */
 
 const params = new URLSearchParams(location.search);
@@ -402,10 +450,13 @@ function log(message) {
   while (el("log").children.length > 120) el("log").lastChild.remove();
 }
 
-function clock(seconds) {
+const clock = (seconds) => {
   const s = Math.max(0, Math.round(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
+};
+
+const when = (iso) => (iso ? new Date(iso).toLocaleString(undefined,
+  { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "");
 
 /* ========================== view switching ============================== */
 
@@ -421,21 +472,103 @@ function showView(name) {
 for (const tab of document.querySelectorAll(".tab")) {
   tab.addEventListener("click", () => showView(tab.dataset.view));
 }
+el("brand").addEventListener("click", () => showView("entrance"));
+
+/** The prediction is a tab beside the map, not a thing that covers it: the
+ *  point is to read the model's answer against the race it is answering. */
+function showSide(name) {
+  el("sideOrder").hidden = name !== "order";
+  el("sidePrediction").hidden = name !== "prediction";
+  for (const tab of document.querySelectorAll(".side-tab")) {
+    tab.classList.toggle("active", tab.dataset.side === name);
+  }
+  if (name === "prediction" && player.bundle) {
+    refreshProjection(player.lap || 1);
+    showCoverage();
+  }
+}
+for (const tab of document.querySelectorAll(".side-tab")) {
+  tab.addEventListener("click", () => showSide(tab.dataset.side));
+}
+el("askModel").addEventListener("click", () => showSide("prediction"));
+el("askAgain").addEventListener("click", () => refreshProjection(player.lap || 1, { fresh: true }));
+
+/* ============================== entrance =============================== */
+
+let entryPoint = null;
+
+/** What Connect will open, and why. The server decides: a session being polled
+ *  now, otherwise whatever is next on the calendar -- practice included, since
+ *  on a Friday that is the session people want -- and the last race either way. */
+async function loadEntrance() {
+  try {
+    entryPoint = await api("/now");
+  } catch (error) {
+    el("connectTarget").innerHTML = '<span class="dot error"></span><span>API unreachable</span>';
+    return;
+  }
+  el("regime").textContent = `regime ${entryPoint.regs_regime} · season ${entryPoint.season}`;
+
+  const target = el("connectTarget");
+  if (entryPoint.live) {
+    target.innerHTML = `<span class="dot live"></span>
+      <span><b>${entryPoint.live.circuit} ${entryPoint.live.session_type}</b> is running now</span>`;
+  } else if (entryPoint.next_session && entryPoint.next_session.session_id) {
+    const next = entryPoint.next_session;
+    target.innerHTML = `<span class="dot"></span>
+      <span>next up: <b>${next.circuit} ${next.session_type}</b> · ${when(next.start_time)}</span>`;
+  } else if (entryPoint.latest_replay) {
+    target.innerHTML = `<span class="dot"></span>
+      <span>last race: <b>${entryPoint.latest_replay.circuit}</b></span>`;
+  } else {
+    target.innerHTML = '<span class="dot"></span><span>nothing scheduled</span>';
+  }
+
+  el("connectAside").textContent = entryPoint.replays_built
+    ? `${entryPoint.replays_built} race${entryPoint.replays_built === 1 ? "" : "s"} ready to replay`
+    : "no replays built yet — build one from the Replays tab";
+}
+
+/** Open the map on whatever Connect resolved to.
+ *
+ *  A live session goes to the websocket as well as the map. A session with no
+ *  replay of its own -- a practice session, or a race that has not run -- still
+ *  gets a map: the most recent built race, so there is a circuit on screen
+ *  rather than an apology. */
+async function connect() {
+  if (!entryPoint) await loadEntrance();
+  showView("dash");
+
+  const live = entryPoint && entryPoint.live;
+  if (live && live.session_id) {
+    connectSocket(live.session_id);
+    if (live.openf1_session_key && await openReplay(live.openf1_session_key, { quiet: true })) return;
+  }
+
+  const upcoming = entryPoint && entryPoint.next_session;
+  const latest = entryPoint && entryPoint.latest_replay;
+  if (latest && await openReplay(latest.session_key, { quiet: true })) {
+    if (upcoming && upcoming.session_id && !live) {
+      el("mapWhen").textContent +=
+        ` · next: ${upcoming.circuit} ${upcoming.session_type}, ${when(upcoming.start_time)}`;
+    }
+    return;
+  }
+
+  el("mapEmpty").hidden = false;
+  el("mapWhere").textContent = upcoming && upcoming.circuit
+    ? `${upcoming.circuit} · ${upcoming.session_type}`
+    : "Nothing to show yet";
+  el("mapWhen").textContent = "No replay built — open Replays and build a race.";
+  setStatus("no replay built");
+}
+el("connectBig").addEventListener("click", connect);
 
 /* ============================ replay player ============================= */
 
 const player = {
-  bundle: null,
-  sessionKey: null,
-  transform: null,     // feed coordinates -> svg coordinates
-  path: [],            // racing line, in svg coordinates
-  pitPath: [],
-  playing: false,
-  time: 0,             // seconds into the session
-  speed: 10,
-  lastFrameAt: 0,
-  lap: 0,
-  selected: null,
+  bundle: null, sessionKey: null, path: [], pitPath: [],
+  playing: false, time: 0, speed: 10, lastFrameAt: 0, lap: 0, selected: null,
 };
 
 /** Fit the circuit into the viewport, flipping Y: the feed counts up, SVG down. */
@@ -457,30 +590,30 @@ function toPathData(points, close) {
   return parts.join(" ") + (close ? " Z" : "");
 }
 
-async function loadReplay(sessionKey) {
+async function openReplay(sessionKey, options = {}) {
   setStatus("downloading replay…");
   el("mapEmpty").hidden = true;
   let bundle;
   try {
     bundle = await api(`/replays/${sessionKey}`);
   } catch (error) {
-    setStatus("replay not built", "error");
-    el("mapWhere").textContent = "This replay has not been built yet.";
-    el("mapWhen").textContent = "Open Replays and build it — one background job per session.";
-    el("mapEmpty").hidden = false;
-    return;
+    if (!options.quiet) {
+      setStatus("replay not built", "error");
+      el("mapWhere").textContent = "This replay has not been built yet.";
+      el("mapWhen").textContent = "Open Replays and build it — one background job per session.";
+      el("mapEmpty").hidden = false;
+    }
+    return false;
   }
 
   player.bundle = bundle;
   player.sessionKey = sessionKey;
-  player.time = 0;
   player.playing = false;
   player.lap = 0;
   projectionCache.clear();
 
   const box = el("map").viewBox.baseVal;
-  const project = fitTransform(bundle.track.bounds, box.width, box.height, 26);
-  player.transform = project;
+  const project = fitTransform(bundle.track.bounds, box.width, box.height, 30);
   player.path = bundle.track.path.map(([x, y]) => project(x, y));
   player.pitPath = bundle.track.pit_path.map(([x, y]) => project(x, y));
 
@@ -511,13 +644,13 @@ async function loadReplay(sessionKey) {
 
   const session = bundle.session;
   el("mapWhere").textContent = `${session.circuit || session.location} · ${session.name}`;
-  el("mapWhen").textContent = new Date(session.date_start).toLocaleString() +
-    ` · ${bundle.total_laps} laps · ${bundle.drivers.length} cars`;
-  el("cachePill").textContent = `${bundle.track.path.length}-point outline`;
+  el("mapWhen").textContent =
+    `${when(session.date_start)} · ${bundle.total_laps} laps · ${bundle.drivers.length} cars`;
   el("scrub").max = String(Math.round(bundle.duration_s));
   setStatus("replay ready", "live");
   renderFrame(player.time);
-  showView("map");
+  showView("dash");
+  return true;
 }
 
 const carNodes = new Map();
@@ -540,7 +673,6 @@ function buildCarLayer(drivers) {
   for (const driver of drivers) {
     const group = document.createElementNS(svgNS, "g");
     group.setAttribute("class", "car");
-    group.style.setProperty("--c", driver.colour);
 
     const dot = document.createElementNS(svgNS, "circle");
     dot.setAttribute("class", "car-dot");
@@ -583,15 +715,14 @@ function selectCar(number) {
   if (player.bundle) renderFrame(player.time);
 }
 
-/** Position along the racing line, as a point. Fractional and wrapping. */
+/** Position along a path, as a point. Fractional and wrapping. */
 function pointAt(path, progress) {
   if (!path.length) return [0, 0];
   const wrapped = ((progress % path.length) + path.length) % path.length;
   const index = Math.floor(wrapped);
-  const next = (index + 1) % path.length;
-  const alpha = wrapped - index;
   const [x0, y0] = path[index];
-  const [x1, y1] = path[next];
+  const [x1, y1] = path[(index + 1) % path.length];
+  const alpha = wrapped - index;
   return [x0 + (x1 - x0) * alpha, y0 + (y1 - y0) * alpha];
 }
 
@@ -626,7 +757,8 @@ function renderFrame(time) {
     node.group.setAttribute("visibility", "visible");
     node.labelGroup.setAttribute("visibility", "visible");
 
-    let x, y, inPit = Array.isArray(here);
+    let x, y;
+    const inPit = Array.isArray(here);
     if (inPit) {
       [x, y] = pointAt(player.pitPath.length ? player.pitPath : player.path, here[1]);
     } else {
@@ -657,7 +789,7 @@ function renderFrame(time) {
   if (frame.lap !== player.lap) {
     player.lap = frame.lap;
     renderOrder(frame.lap);
-    if (panelOpen()) refreshProjection(frame.lap);
+    if (!el("sidePrediction").hidden) refreshProjection(frame.lap);
   }
 }
 
@@ -688,7 +820,6 @@ function renderOrder(lap) {
   const laps = player.bundle.laps || {};
   const rows = laps[String(lap)] || laps["1"] || [];
   const drivers = new Map(player.bundle.drivers.map((d) => [d.number, d]));
-  el("orderLap").textContent = lap ? `lap ${lap}` : "—";
   const container = el("order");
   if (!rows.length) { container.innerHTML = '<div class="empty">No timing on this lap.</div>'; return; }
 
@@ -771,31 +902,59 @@ async function loadCatalogue() {
     grid.innerHTML = `<div class="empty">Could not reach OpenF1: ${error.message}</div>`;
     return;
   }
-  el("replayCount").textContent = `${replayCatalogue.length} races`;
-  grid.textContent = "";
-  for (const round of replayCatalogue) {
-    grid.append(replayCard(round));
-  }
+  renderCatalogue();
 }
+
+/** Filter the library on anything printed on a card: circuit, country, the
+ *  kind of session, or the month it ran in. Every word has to match, so
+ *  "monza sprint" narrows rather than widens. */
+function matchesSearch(round, query) {
+  if (!query) return true;
+  const haystack = [
+    round.circuit, round.country, round.location, round.name,
+    round.date_start
+      ? new Date(round.date_start).toLocaleDateString(undefined, { month: "long", year: "numeric" })
+      : "",
+  ].join(" ").toLowerCase();
+  return query.toLowerCase().split(/\s+/).every((word) => haystack.includes(word));
+}
+
+function renderCatalogue() {
+  const query = el("replaySearch").value.trim();
+  const rounds = (replayCatalogue || []).filter((round) => matchesSearch(round, query));
+  const built = rounds.filter((round) => round.cached).length;
+  el("replayCount").textContent =
+    `${rounds.length} race${rounds.length === 1 ? "" : "s"} · ${built} ready`;
+
+  const grid = el("replayGrid");
+  grid.textContent = "";
+  if (!rounds.length) {
+    grid.innerHTML = '<div class="empty">Nothing matches that search.</div>';
+    return;
+  }
+  for (const round of rounds) grid.append(replayCard(round));
+}
+el("replaySearch").addEventListener("input", renderCatalogue);
+el("refreshReplays").addEventListener("click", () => { replayCatalogue = null; loadCatalogue(); });
 
 function replayCard(round) {
   const card = document.createElement("div");
   card.className = "card replay-card";
-  const when = new Date(round.date_start).toLocaleDateString(undefined,
+  const date = new Date(round.date_start).toLocaleDateString(undefined,
     { day: "numeric", month: "short", year: "numeric" });
   card.innerHTML = `
     <div class="top">
       <div><b>${round.circuit || round.location}</b><div class="meta">${round.country} · ${round.name}</div></div>
       <span class="badge ${round.cached ? "ready" : ""}">${round.cached ? "ready" : "not built"}</span>
     </div>
-    <div class="meta">${when}${round.size_bytes ? ` · ${(round.size_bytes / 1e6).toFixed(1)} MB` : ""}</div>
+    <div class="meta">${date}${round.size_bytes ? ` · ${(round.size_bytes / 1e6).toFixed(1)} MB` : ""}</div>
     <div class="actions"></div>`;
 
   const actions = card.querySelector(".actions");
   const open = document.createElement("button");
   open.className = "primary";
   open.textContent = round.cached ? "Watch" : "Build & watch";
-  open.addEventListener("click", () => (round.cached ? loadReplay(round.session_key)
+  open.addEventListener("click", () => (round.cached ? openReplay(round.session_key)
                                                     : buildReplay(round, card, open)));
   actions.append(open);
   return card;
@@ -816,11 +975,12 @@ async function buildReplay(round, card, button) {
       status.textContent = `${stage}…`;
     });
     if (finished.status !== "succeeded") throw new Error(finished.error || "build failed");
-    status.textContent = "ready";
+    // The build is stored centrally, so it is everyone's replay from now on.
+    status.textContent = "ready for everyone";
     round.cached = true;
     card.querySelector(".badge").className = "badge ready";
     card.querySelector(".badge").textContent = "ready";
-    await loadReplay(round.session_key);
+    await openReplay(round.session_key);
   } catch (error) {
     status.textContent = error.message;
   } finally {
@@ -838,50 +998,133 @@ async function pollJob(jobId, onProgress) {
   }
 }
 
-el("refreshReplays").addEventListener("click", () => { replayCatalogue = null; loadCatalogue(); });
-
 /* ========================= prediction panel ============================= */
 
 const projectionCache = new Map();
-const panelOpen = () => el("panel").classList.contains("open");
+let accuracyCache = null;
 
-el("panelToggle").addEventListener("click", () => {
-  el("panel").classList.toggle("open");
-  if (panelOpen() && player.bundle) {
-    refreshProjection(player.lap || 1);
-    showCoverage();
-  }
-});
-el("panelClose").addEventListener("click", () => el("panel").classList.remove("open"));
+async function refreshProjection(lap, options = {}) {
+  if (!player.bundle || !lap) return;
+  if (options.fresh) projectionCache.delete(lap);
+  if (projectionCache.has(lap)) return renderProjection(projectionCache.get(lap));
 
-/** Run the prediction model over every lap of the loaded replay.
- *
- *  A batch pass on the server's job pool, not a request: afterwards the panel
- *  reads stored rows instead of running a model per lap. */
-async function evaluateReplay() {
-  if (!player.sessionKey) return;
-  const button = el("evaluateBtn");
-  button.disabled = true;
+  el("thinking").innerHTML = '<h3>What the model is thinking</h3>';
+  el("thinking").append(note("asking the model…"));
   try {
-    const job = await api(`/replays/${player.sessionKey}/predict`, { method: "POST" });
-    const finished = await pollJob(job.job_id, (record) => {
-      const stage = record.stages[record.stages.length - 1] || "working";
-      button.textContent = `${stage}…`;
-    });
-    if (finished.status !== "succeeded") throw new Error(finished.error || "evaluation failed");
-    projectionCache.clear();
-    button.textContent = `${finished.result.laps} laps cached`;
-    await refreshProjection(player.lap || 1);
-    await showCoverage();
+    const projection = await api(
+      `/replays/${player.sessionKey}/projection?lap=${lap}${options.fresh ? "&fresh=true" : ""}`
+    );
+    projectionCache.set(lap, projection);
+    if (player.lap === lap || !player.playing) renderProjection(projection);
   } catch (error) {
-    button.textContent = "Evaluate race";
-    el("panelNote").textContent = error.message;
-  } finally {
-    button.disabled = false;
-    setTimeout(() => { button.textContent = "Evaluate race"; }, 4000);
+    el("panelBody").innerHTML = `<div class="empty">${error.message}</div>`;
   }
 }
-el("evaluateBtn").addEventListener("click", evaluateReplay);
+
+function note(text) {
+  const node = document.createElement("div");
+  node.className = "empty";
+  node.style.padding = "8px 0";
+  node.textContent = text;
+  return node;
+}
+
+/** The model's read of this lap, in sentences.
+ *
+ *  A table of twenty rows answers "show me everything". This answers "what do
+ *  you think?" -- who wins, who is about to move and why, and where the
+ *  trained model and the arithmetic disagree, which is the interesting part. */
+function summarise(projection) {
+  const entries = projection.entries;
+  const lines = [];
+  const winner = entries[0];
+  lines.push(`<b>${winner.name || winner.code}</b> takes it, with
+    ${projection.laps_remaining} lap${projection.laps_remaining === 1 ? "" : "s"} left to run.`);
+
+  const movers = entries
+    .filter((e) => e.position_change != null && Math.abs(e.position_change) >= 2)
+    .sort((a, b) => Math.abs(b.position_change) - Math.abs(a.position_change))
+    .slice(0, 2);
+  for (const mover of movers) {
+    const up = mover.position_change > 0;
+    lines.push(`<b>${mover.code}</b> ${up ? "gains" : "loses"}
+      ${Math.abs(mover.position_change)} place${Math.abs(mover.position_change) === 1 ? "" : "s"}
+      from P${mover.position} — ${up ? "quicker than the cars around it"
+                                    : "it still owes the pit lane"}.`);
+  }
+
+  const owing = entries.filter((e) => e.stops_owed > 0).length;
+  lines.push(owing
+    ? `${owing} car${owing === 1 ? " has" : "s have"} a stop still to make, worth about
+       ${projection.pit_loss_s.toFixed(0)}s each here.`
+    : "Everyone is on the tyres they intend to finish on.");
+
+  if (projection.overtaking_difficulty != null && projection.overtaking_difficulty > 0.6) {
+    lines.push("Passing is hard here, so a pace advantage counts for less than it looks.");
+  }
+
+  const model = projection.model || {};
+  if (model.available) {
+    const disagreements = entries.filter(
+      (e) => e.model_position && Math.abs(e.model_position - e.projected_position) >= 4
+    ).length;
+    lines.push(disagreements
+      ? `The trained model disagrees sharply on ${disagreements}
+         car${disagreements === 1 ? "" : "s"} — worth watching which way they go.`
+      : "The trained model broadly agrees with this order.");
+  } else {
+    lines.push(`No trained model is running on this session — ${model.reason || "unavailable"}.`);
+  }
+
+  return `<h3>What the model is thinking</h3><ul>${lines.map((l) => `<li>${l}</li>`).join("")}</ul>`;
+}
+
+function renderProjection(projection) {
+  const body = el("panelBody");
+  if (!projection.entries.length) {
+    el("thinking").innerHTML = "<h3>What the model is thinking</h3>";
+    el("thinking").append(note("No timing data on this lap."));
+    body.textContent = "";
+    return;
+  }
+  el("thinking").innerHTML = summarise(projection);
+
+  const modelLive = projection.model && projection.model.available;
+  const rows = projection.entries.map((entry) => {
+    const change = entry.position_change;
+    const arrow = change > 0 ? `<span class="up">▲${change}</span>`
+                : change < 0 ? `<span class="down">▼${-change}</span>`
+                : '<span style="color:var(--muted)">–</span>';
+    return `<tr>
+      <td class="num">${entry.projected_position}</td>
+      <td>
+        <span style="display:inline-block;width:4px;height:14px;border-radius:2px;background:${entry.colour};vertical-align:-2px"></span>
+        <b>${entry.code}</b>
+      </td>
+      <td class="num">${entry.position ?? "–"} ${arrow}</td>
+      <td>${entry.compound ? `<span class="tyre ${entry.compound}">${entry.compound[0]}${entry.tyre_age ?? ""}</span>` : "–"}</td>
+      <td class="num">${entry.stops}${entry.stops_owed ? ` +${entry.stops_owed}` : ""}</td>
+      <td class="num">${entry.pace_delta_s != null ? (entry.pace_delta_s > 0 ? "+" : "") + entry.pace_delta_s.toFixed(2) : "–"}</td>
+      ${modelLive ? `<td class="num">${entry.model_position ?? "–"}</td>` : ""}
+    </tr>`;
+  }).join("");
+
+  body.innerHTML = `<table>
+    <thead><tr>
+      <th class="num">Proj</th><th>Driver</th><th class="num">Now</th><th>Tyre</th>
+      <th class="num">Stops</th><th class="num">Pace Δ</th>
+      ${modelLive ? '<th class="num">Model</th>' : ""}
+    </tr></thead><tbody>${rows}</tbody></table>`;
+
+  const model = projection.model || {};
+  el("panelNote").innerHTML = `
+    <div class="formula">order = track position, nudged by
+      (gap − pace × ${projection.laps_remaining} laps + ${projection.pit_loss_s.toFixed(0)}s × stops owed)</div>
+    <div style="margin-top:6px">${model.available
+      ? `Model column: <b>${model.model_type}</b> v${model.version} (${model.regs_regime} regime).`
+      : `Trained model not shown — ${model.reason || "unavailable"}.`}</div>`;
+  showAccuracy();
+}
 
 async function showCoverage() {
   if (!player.sessionKey) return;
@@ -892,65 +1135,46 @@ async function showCoverage() {
       ? `${run.laps} laps evaluated under model ${run.model_version}`
       : "not evaluated yet";
   } catch (_) { /* coverage is a nicety, not a requirement */ }
+  showAccuracy();
 }
 
-async function refreshProjection(lap) {
-  if (!player.bundle || !lap) return;
-  el("panelLap").textContent = `lap ${lap} / ${player.bundle.total_laps}`;
-  if (projectionCache.has(lap)) return renderProjection(projectionCache.get(lap));
+/** How wrong this projection has been, on races that have already finished.
+ *
+ *  A projected finishing order is unfalsifiable while a race runs, so the
+ *  panel quotes its own track record instead: the typical error at this stage
+ *  of a race, next to the error of simply reading the running order. If the
+ *  projection cannot beat that, the number above deserves less trust. */
+async function showAccuracy() {
+  const node = el("panelAccuracy");
   try {
-    const projection = await api(`/replays/${player.sessionKey}/projection?lap=${lap}`);
-    projectionCache.set(lap, projection);
-    if (player.lap === lap || !player.playing) renderProjection(projection);
-  } catch (error) {
-    el("panelBody").innerHTML = `<div class="empty">${error.message}</div>`;
-  }
-}
+    if (!accuracyCache) accuracyCache = await api("/predictions/accuracy");
+  } catch (_) { node.textContent = ""; return; }
 
-function renderProjection(projection) {
-  const body = el("panelBody");
-  if (!projection.entries.length) {
-    body.innerHTML = '<div class="empty">No timing data on this lap.</div>';
+  if (!accuracyCache.scored_laps) {
+    node.innerHTML = "<b>Not yet scored.</b> Evaluate a finished race to measure this " +
+      "projection against what actually happened.";
     return;
   }
-  const modelLive = projection.model && projection.model.available;
-  const rows = projection.entries.map((entry) => {
-    const change = entry.position_change;
-    const arrow = change > 0 ? `<span class="up">▲${change}</span>`
-                : change < 0 ? `<span class="down">▼${-change}</span>`
-                : '<span style="color:var(--muted)">–</span>';
-    return `<tr>
-      <td class="num">${entry.projected_position}</td>
-      <td>
-        <span class="bar" style="display:inline-block;width:4px;height:14px;border-radius:2px;background:${entry.colour};vertical-align:-2px"></span>
-        <b>${entry.code}</b> <small style="color:var(--muted)">${entry.team || ""}</small>
-      </td>
-      <td class="num">${entry.position ?? "–"} ${arrow}</td>
-      <td>${entry.compound ? `<span class="tyre ${entry.compound}">${entry.compound[0]}${entry.tyre_age ?? ""}</span>` : "–"}</td>
-      <td class="num">${entry.stops}${entry.stops_owed ? ` +${entry.stops_owed}` : ""}</td>
-      <td class="num">${entry.pace_delta_s != null ? (entry.pace_delta_s > 0 ? "+" : "") + entry.pace_delta_s.toFixed(2) : "–"}</td>
-      <td class="num">${entry.projected_position === 1 ? "leader"
-        : "+" + (entry.projected_gap_s ?? entry.projected_delta_s).toFixed(1)}</td>
-      ${modelLive ? `<td class="num">${entry.model_position ?? "–"}</td>` : ""}
-    </tr>`;
-  }).join("");
+  const stage = stageOf(player.lap, player.bundle ? player.bundle.total_laps : 0);
+  const row = (accuracyCache.by_stage || []).find((s) => s.stage === stage) || accuracyCache.overall;
+  const places = (value) => (value == null ? "–" : `${value.toFixed(1)} places`);
+  const verdict = row.best === "projection" ? "the projection is ahead"
+    : row.best === "model" ? "the model is ahead"
+    : "reading the running order is still better";
 
-  body.innerHTML = `<table>
-    <thead><tr>
-      <th class="num">Proj</th><th>Driver</th><th class="num">Now</th><th>Tyre</th>
-      <th class="num">Stops</th><th class="num">Pace Δ</th><th class="num">Finish gap</th>
-      ${modelLive ? '<th class="num">Model</th>' : ""}
-    </tr></thead><tbody>${rows}</tbody></table>`;
+  node.innerHTML = `<b>Measured on ${accuracyCache.scored_laps} scored laps</b> of finished races —
+    typical error in the ${stage || "race"}: projection ${places(row.projection)},
+    model ${places(row.model)}, track position ${places(row.track_position)}. ${verdict}.`;
+}
 
-  const model = projection.model || {};
-  el("panelNote").innerHTML = `
-    ${projection.cached ? "" : '<div style="margin-bottom:6px">computed just now and cached</div>'}
-    <div class="formula">projected = gap_to_leader − pace_advantage × ${projection.laps_remaining} laps + ${projection.pit_loss_s.toFixed(0)}s × stops_owed</div>
-    <div style="margin-top:6px">Ranked on ${projection.basis}. Pace advantage is measured against the field median,
-    clamped, and trusted in proportion to how many racing laps have been seen.</div>
-    <div style="margin-top:6px">${model.available
-      ? `Model column: <b>${model.model_type}</b> v${model.version} (${model.regs_regime} regime), run over the same lap through the trained feature vector.`
-      : `Trained model not shown — ${model.reason || "unavailable"}.`}</div>`;
+/** Which quarter of a race a lap falls in — the server groups scores the same way. */
+function stageOf(lap, totalLaps) {
+  if (!lap || !totalLaps) return null;
+  const fraction = lap / totalLaps;
+  if (fraction < 0.25) return "opening quarter";
+  if (fraction < 0.5) return "second quarter";
+  if (fraction < 0.75) return "third quarter";
+  return "final quarter";
 }
 
 /* ============================== live view =============================== */
@@ -959,8 +1183,6 @@ let socket = null;
 
 async function loadSessions() {
   try {
-    const health = await api("/health");
-    el("regime").textContent = `regime ${health.regs_regime} · season ${health.season}`;
     const sessions = await api("/sessions");
     const select = el("sessionSelect");
     select.textContent = "";
@@ -971,8 +1193,8 @@ async function loadSessions() {
       const option = document.createElement("option");
       option.value = String(session.id);
       option.dataset.type = session.session_type;
-      const when = session.start_time ? new Date(session.start_time).toLocaleDateString() : "tbc";
-      option.textContent = `${session.circuit_id} · ${session.session_type} · ${when}`;
+      const date = session.start_time ? new Date(session.start_time).toLocaleDateString() : "tbc";
+      option.textContent = `${session.circuit_id} · ${session.session_type} · ${date}`;
       select.append(option);
     }
   } catch (error) {
@@ -1040,12 +1262,12 @@ function setGate(reason) {
   const banner = el("gateBanner");
   banner.classList.toggle("on", !!reason);
   if (reason) {
-    banner.textContent =
-      `${reason.replace("_", " ")} — predictions are still updating but assume normal racing, so treat them as low confidence.`;
+    banner.textContent = `${reason.replace("_", " ")} — predictions are still updating but ` +
+      "assume normal racing, so treat them as low confidence.";
   }
 }
 
-function connect(sessionId) {
+function connectSocket(sessionId) {
   if (socket) socket.close();
   setStatus("connecting…");
   socket = new WebSocket(`${WS_BASE}/sessions/${sessionId}/live`);
@@ -1073,7 +1295,7 @@ el("connectBtn").addEventListener("click", () => {
   if (!sessionId) return;
   const type = el("sessionSelect").selectedOptions[0].dataset.type || "";
   if (type.startsWith("FP")) loadPractice(sessionId);
-  connect(sessionId);
+  connectSocket(sessionId);
 });
 
 /* =============================== start ================================= */
@@ -1081,21 +1303,10 @@ el("connectBtn").addEventListener("click", () => {
 (async function start() {
   API = await detectApi();
   WS_BASE = API.replace(/^http/, "ws");
-  await loadSessions();
-  await loadCatalogue();
-
-  // The main view opens on the most recent race that has a replay built,
-  // falling back to the most recent race at all.
-  const ready = (replayCatalogue || []).find((round) => round.cached);
-  if (ready) {
-    await loadReplay(ready.session_key);
-  } else if (replayCatalogue && replayCatalogue.length) {
-    const latest = replayCatalogue[0];
-    el("mapWhere").textContent = `${latest.circuit} · ${latest.name}`;
-    el("mapWhen").textContent = "No replay built yet — open Replays to build this race.";
-    el("mapEmpty").hidden = false;
-    setStatus("no replay built");
-  }
+  showView("entrance");
+  await loadEntrance();
+  loadSessions();
+  loadCatalogue();
 })();
 </script>
 </body>

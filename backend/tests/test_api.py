@@ -84,7 +84,8 @@ class TestMeta:
         assert "Live Prediction Dashboard" in response.text
         # The three things the page is: a circuit map, a replay library and a
         # live view. If one stops being served the page is half a dashboard.
-        for marker in ('id="map"', 'id="view-replays"', 'id="view-live"'):
+        for marker in ('id="map"', 'id="view-entrance"', 'id="view-replays"',
+                       'id="view-live"', 'id="askModel"', 'id="replaySearch"'):
             assert marker in response.text
 
 

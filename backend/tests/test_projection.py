@@ -39,15 +39,58 @@ def car(number: int, position: int, *, gap=0.0, pace_delta=0.0, compound="MEDIUM
     }
 
 
+class TestRankingAnchor:
+    def test_the_correction_is_applied_gently(self):
+        """Measured: heavier than this and the order gets worse, not better."""
+        assert 0.05 <= P.PACE_TRUST <= 0.25
+
+    def test_the_weight_does_not_ramp(self):
+        """Both ramps scored worse than a light constant. See _anchor's docstring."""
+        weights = {P._anchor(remaining=r, total_laps=60) for r in (60, 30, 0)}
+        assert len(weights) == 1
+
+    def test_track_position_still_dominates(self):
+        """The projection nudges the running order; it does not replace it."""
+        data = bundle(rows={30: [car(n, n, gap=n * 1.5) for n in range(1, 11)]})
+        result = P.project_finish(data, 30)
+        assert [e["number"] for e in result["entries"]] == list(range(1, 11))
+
+
 class TestProjection:
-    def test_a_quicker_car_is_projected_past_the_one_ahead(self):
-        data = bundle(rows={40: [
-            car(1, 1, gap=0.0, pace_delta=0.0),
-            car(2, 2, gap=6.0, pace_delta=0.5),   # half a second a lap quicker
+    def test_a_car_projected_far_enough_ahead_does_pass(self):
+        """The correction is gentle, not absent: enough of a gain still moves a car."""
+        data = bundle(total_laps=70, rows={20: [
+            car(1, 1, gap=0.0, pace_delta=-0.8, compound="SOFT", age=17, stops=0),
+            car(2, 2, gap=0.4, pace_delta=0.8, compound="HARD", age=2, stops=1),
         ]})
-        result = P.project_finish(data, 40)
+        result = P.project_finish(data, 20)
         assert [entry["number"] for entry in result["entries"]] == [2, 1]
-        assert result["entries"][0]["position_change"] == 1
+
+    def test_a_marginal_reading_leaves_the_order_alone(self):
+        """A tenth a lap is not evidence enough to reorder a race."""
+        data = bundle(rows={30: [
+            car(1, 1, gap=0.0, pace_delta=0.0),
+            car(2, 2, gap=2.0, pace_delta=0.1),
+        ]})
+        result = P.project_finish(data, 30)
+        assert [entry["number"] for entry in result["entries"]] == [1, 2]
+
+    def test_a_pace_advantage_counts_for_less_where_passing_is_hard(self, db, seeded):
+        """Half a second a lap at Monaco buys a closer view of a gearbox."""
+        seeded["circuit"].historical_overtaking_difficulty = 0.95
+        db.flush()
+        rows = {45: [car(1, 1, gap=0.0, pace_delta=0.0),
+                     car(2, 2, gap=6.0, pace_delta=0.8)]}
+        hard = P.project_finish(bundle(rows=rows, circuit="Silverstone"), 45, db=db)
+
+        seeded["circuit"].historical_overtaking_difficulty = 0.05
+        db.flush()
+        easy = P.project_finish(bundle(rows=rows, circuit="Silverstone"), 45, db=db)
+
+        gain = lambda result: next(  # noqa: E731
+            e["pace_gain_s"] for e in result["entries"] if e["number"] == 2
+        )
+        assert gain(easy) > gain(hard) * 1.5
 
     def test_a_gap_too_large_to_close_survives_a_pace_advantage(self):
         data = bundle(rows={55: [
@@ -64,10 +107,12 @@ class TestProjection:
             car(2, 2, gap=8.0, compound="HARD", age=2, stops=1),    # to the flag on these
         ]})
         result = P.project_finish(data, 30)
-        assert result["entries"][0]["number"] == 2
-        assert result["entries"][0]["stops_owed"] == 0
         leader = next(e for e in result["entries"] if e["number"] == 1)
         assert leader["stops_owed"] == 1
+        assert next(e for e in result["entries"] if e["number"] == 2)["stops_owed"] == 0
+        # The stop pushes the leader back rather than deciding the race: what a
+        # car still owes is inferred, not observed, so it is trusted gently.
+        assert leader["projected_places_gained"] < 0
 
     def test_one_fast_lap_at_the_start_cannot_win_the_race(self):
         """Pace is trusted in proportion to how much of it has been seen."""
@@ -128,22 +173,24 @@ class TestSessionResolution:
         assert "not in the database" in result["model"]["reason"]
 
 
-class TestPitLoss:
-    def test_the_circuit_s_own_pit_loss_is_used_when_it_is_known(self, db, seeded):
-        data = bundle(circuit="Silverstone")
-        assert P._pit_loss(data, db) == seeded["circuit"].avg_pit_loss_s
+class TestCircuitProfile:
+    def test_the_circuit_s_own_figures_are_used_when_it_is_known(self, db, seeded):
+        profile = P._circuit_profile(bundle(circuit="Silverstone"), db)
+        assert profile.pit_loss_s == seeded["circuit"].avg_pit_loss_s
+        assert profile.overtaking_difficulty == seeded["circuit"].historical_overtaking_difficulty
 
     def test_an_unknown_circuit_falls_back(self, db, seeded):
-        assert P._pit_loss(bundle(circuit="Nowhere"), db) == P.DEFAULT_PIT_LOSS_S
+        assert P._circuit_profile(bundle(circuit="Nowhere"), db).pit_loss_s == P.DEFAULT_PIT_LOSS_S
 
     def test_the_two_sources_are_matched_on_the_naming_part(self, db, seeded):
         """The replay names circuits as OpenF1 does, the database as FastF1 does."""
-        assert P._pit_loss(bundle(circuit="Silverstone Circuit"), db) == 20.5
-        assert P._pit_loss(bundle(circuit="", location="Silverstone"), db) == 20.5
+        assert P._circuit_profile(bundle(circuit="Silverstone Circuit"), db).pit_loss_s == 20.5
+        assert P._circuit_profile(bundle(circuit="", location="Silverstone"), db).pit_loss_s == 20.5
 
     def test_boilerplate_alone_is_not_a_match(self, db, seeded):
         """Half the calendar is a "Grand Prix"; that identifies nothing."""
-        assert P._pit_loss(bundle(circuit="Belgian Grand Prix"), db) == P.DEFAULT_PIT_LOSS_S
+        profile = P._circuit_profile(bundle(circuit="Belgian Grand Prix"), db)
+        assert profile.pit_loss_s == P.DEFAULT_PIT_LOSS_S
 
     def test_the_country_settles_a_disagreement_the_names_cannot(self, db, seeded):
         """OpenF1 calls it Monte Carlo; a database seeded elsewhere calls it Monaco."""
@@ -157,4 +204,4 @@ class TestPitLoss:
         )
         db.flush()
         data = bundle(circuit="Monte Carlo", location="Monte Carlo", country="Monaco")
-        assert P._pit_loss(data, db) == 19.0
+        assert P._circuit_profile(data, db).pit_loss_s == 19.0

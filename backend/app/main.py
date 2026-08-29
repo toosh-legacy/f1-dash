@@ -27,11 +27,13 @@ from app.data import seed as seeding
 from app.data.fastf1_client import FastF1Client, FastF1Unavailable
 from app.db import models as m
 from app.db import projection_store
-from app.db.database import get_db, init_db
+from app.db import replay_store
+from app.db.database import get_db, init_db, session_scope
 from app.live.base import loops
 from app.live.broadcast import broadcaster
 from app.live.qualifying_loop import QualifyingLoop
 from app.live.race_loop import RaceLoop
+from app.models import calibration
 from app.models import registry
 from app.models import replay_predictor
 from app.training import jobs
@@ -98,6 +100,71 @@ def health(db: DBSession = Depends(get_db)) -> schemas.HealthOut:
         live_loops=len(loops.statuses()),
         pending_jobs=jobs.pending_count(),
     )
+
+
+@app.get("/now", tags=["meta"])
+def now(db: DBSession = Depends(get_db)) -> dict[str, Any]:
+    """What the dashboard should open on when somebody hits Connect.
+
+    In order of interest: a session being polled right now, otherwise the next
+    session on the calendar whatever its kind -- a Friday practice is what a
+    viewer wants on a Friday -- and, either way, the most recent race with a
+    replay built, since that is the one thing always worth showing.
+    """
+    moment = datetime.now(timezone.utc)
+
+    running = loops.statuses()
+    live = None
+    if running:
+        status = running[0]
+        session = db.get(m.Session, status.get("session_id"))
+        live = {
+            "session_id": status.get("session_id"),
+            "openf1_session_key": status.get("session_key"),
+            "kind": status.get("kind"),
+            "context": status.get("last_context"),
+            **_session_brief(session),
+        }
+
+    upcoming = db.scalars(
+        select(m.Session)
+        .where(m.Session.start_time.isnot(None), m.Session.start_time >= moment)
+        .order_by(m.Session.start_time.asc())
+        .limit(1)
+    ).first()
+
+    previous = db.scalars(
+        select(m.Session)
+        .where(m.Session.start_time.isnot(None), m.Session.start_time < moment)
+        .order_by(m.Session.start_time.desc())
+        .limit(1)
+    ).first()
+
+    built = replay_store.catalogue_rows(db)
+    return {
+        "server_time": moment.isoformat(),
+        "regs_regime": settings.CURRENT_REGS_REGIME,
+        "season": settings.CURRENT_SEASON,
+        "live": live,
+        "next_session": _session_brief(upcoming),
+        "last_session": _session_brief(previous),
+        "latest_replay": built[0] if built else None,
+        "replays_built": len(built),
+    }
+
+
+def _session_brief(session: m.Session | None) -> dict[str, Any]:
+    if session is None:
+        return {}
+    return {
+        "session_id": session.id,
+        "circuit_id": session.circuit_id,
+        "circuit": session.circuit.name if session.circuit else session.circuit_id,
+        "session_type": session.session_type,
+        "start_time": session.start_time.isoformat() if session.start_time else None,
+        "status": session.status,
+        "openf1_session_key": session.openf1_session_key,
+    }
 
 
 # -- reference data ----------------------------------------------------------
@@ -380,13 +447,24 @@ def stop_live_loop(session_id: int) -> dict[str, Any]:
 
 
 @app.get("/replays", response_model=list[schemas.ReplayRoundOut], tags=["replays"])
-def list_replays(year: int | None = None, sprints: bool = True) -> list[dict[str, Any]]:
+def list_replays(
+    year: int | None = None, sprints: bool = True, db: DBSession = Depends(get_db)
+) -> list[dict[str, Any]]:
     """Every race that has already run, and whether its replay is built."""
     try:
         rounds = replay.catalogue(year, include_sprints=sprints)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"replay catalogue unavailable: {exc}")
-    return [entry.as_dict() for entry in rounds]
+
+    shared = replay_store.available(db)
+    listed = []
+    for entry in rounds:
+        row = entry.as_dict()
+        # "Built" means built by anyone: the database is the shared library and
+        # this server may simply not have fetched a copy yet.
+        row["cached"] = row["cached"] or entry.session_key in shared
+        listed.append(row)
+    return listed
 
 
 @app.post("/replays/{session_key}/build", response_model=schemas.JobOut, tags=["replays"])
@@ -397,7 +475,7 @@ def build_replay(session_key: int, force: bool = False) -> dict[str, Any]:
     thousands of samples, so it goes to the same background pool retraining
     uses and the caller gets a job record straight back.
     """
-    if replay.is_cached(session_key) and not force:
+    if not force and _ensure_local(session_key):
         return jobs.jobs.create("replay", None).as_dict() | {
             "status": "succeeded",
             "result": {"session_key": session_key, "cached": True},
@@ -409,11 +487,15 @@ def build_replay(session_key: int, force: bool = False) -> dict[str, Any]:
             force=force,
             progress=lambda stage, detail=None: progress(stage, detail),
         )
+        # Publishing is the point: one person's build is everyone's replay.
+        with session_scope() as db:
+            size = replay_store.publish(db, session_key, bundle)
+        progress("published", {"session_key": session_key, "bytes": size})
         return {
             "session_key": session_key,
             "frames": len(bundle["frames"]),
             "total_laps": bundle["total_laps"],
-            "bytes": replay.bundle_path(session_key).stat().st_size,
+            "bytes": size,
         }
 
     return jobs.submit("replay", None, run).as_dict()
@@ -426,12 +508,12 @@ def get_replay(session_key: int) -> FileResponse:
     Served as the stored gzip rather than re-encoded: it is several megabytes
     of JSON uncompressed and the browser unwraps it for free.
     """
-    path = replay.bundle_path(session_key)
-    if not path.exists():
+    if not _ensure_local(session_key):
         raise HTTPException(
             status_code=404,
             detail=f"replay for session {session_key} is not built yet; POST to /replays/{session_key}/build",
         )
+    path = replay.bundle_path(session_key)
     return FileResponse(
         str(path),
         media_type="application/json",
@@ -455,6 +537,7 @@ def replay_projection(
     under the active model; computed and stored on a miss. ``fresh=true``
     recomputes regardless, which is how a cached answer gets checked.
     """
+    _ensure_local(session_key)
     bundle = replay.load_bundle(session_key)
     if bundle is None:
         raise HTTPException(status_code=404, detail=f"replay for session {session_key} is not built yet")
@@ -473,7 +556,7 @@ def evaluate_replay(session_key: int) -> dict[str, Any]:
     A batch pass, on the same background pool as retraining: after it, the
     prediction panel reads rows instead of running models.
     """
-    if not replay.is_cached(session_key):
+    if not _ensure_local(session_key):
         raise HTTPException(
             status_code=409,
             detail=f"replay for session {session_key} is not built yet; build it first",
@@ -498,6 +581,23 @@ def replay_prediction_coverage(
         "active_model_version": replay_predictor.active_model_version(db),
         "built": replay.is_cached(session_key),
     }
+
+
+@app.get("/replays/{session_key}/accuracy", tags=["replays"])
+def replay_accuracy(session_key: int, db: DBSession = Depends(get_db)) -> dict[str, Any]:
+    """How close this replay's stored projections were to the classification.
+
+    Scores three answers side by side -- where the car was at the time, the
+    projection, and the trained model -- so the prediction has to earn its
+    place against simply reading the running order.
+    """
+    return calibration.score_replay(db, session_key)
+
+
+@app.get("/predictions/accuracy", tags=["replays"])
+def prediction_accuracy(db: DBSession = Depends(get_db)) -> dict[str, Any]:
+    """The same measure across every replay that has been evaluated."""
+    return calibration.summary(db)
 
 
 @app.delete(
@@ -556,6 +656,18 @@ if STATIC_DIR.exists():
 
 
 # -- helpers -----------------------------------------------------------------
+
+
+def _ensure_local(session_key: int) -> bool:
+    """Make sure this server has the replay file, fetching the shared copy.
+
+    A build belongs to everyone, so "is it built?" is a question about the
+    database, not about this machine's disk.
+    """
+    if replay.is_cached(session_key):
+        return True
+    with session_scope() as db:
+        return replay_store.hydrate(db, session_key)
 
 
 def _require_session(db: DBSession, session_id: int) -> m.Session:

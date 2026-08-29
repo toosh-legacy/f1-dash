@@ -53,7 +53,7 @@ Progress = Callable[[str, dict[str, Any] | None], None]
 
 #: Bundle format version. Bumped when the on-disk shape changes so stale caches
 #: are rebuilt rather than misread.
-BUNDLE_VERSION = 5
+BUNDLE_VERSION = 6
 
 #: A sample further than this from the racing line is not on the racing line.
 #: OpenF1 units are roughly decimetres, so this is ~15 m -- wide enough to keep
@@ -102,9 +102,14 @@ REFINE_PASSES = 2
 #: Rolling window for the pace figure shown in the prediction panel.
 PACE_WINDOW_LAPS = 5
 
-#: Laps outside this band of the driver's own median are safety-car laps, pit
-#: laps or traffic, and are excluded from the pace figure.
+#: Laps outside this band of the driver's own median are pit laps or traffic,
+#: and are excluded from the pace figure.
 PACE_OUTLIER_RATIO = 1.10
+
+#: The share of the field whose pace is the benchmark. The quickest quarter is
+#: what a car at the front is actually racing; the field median is not a
+#: benchmark at all, since half the grid is slower than it by construction.
+REFERENCE_PACE_QUANTILE = 0.25
 
 _TEAM_FALLBACK_COLOUR = "9AA0A6"
 
@@ -225,6 +230,26 @@ def load_bundle(session_key: int) -> dict[str, Any] | None:
         return None
 
 
+def bundle_bytes(session_key: int) -> bytes | None:
+    """The stored gzip for a built replay, or ``None`` if it is not built here.
+
+    Raw bytes rather than the parsed bundle: this is what gets handed to a
+    client, and what gets published so other clients need not rebuild it.
+    """
+    path = bundle_path(session_key)
+    return path.read_bytes() if path.exists() else None
+
+
+def write_bundle_bytes(session_key: int, data: bytes) -> Path:
+    """Seed the local file cache from a bundle built elsewhere."""
+    settings.REPLAY_DIR.mkdir(parents=True, exist_ok=True)
+    path = bundle_path(session_key)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_bytes(data)
+    tmp.replace(path)
+    return path
+
+
 def _store_bundle(session_key: int, bundle: dict[str, Any]) -> Path:
     settings.REPLAY_DIR.mkdir(parents=True, exist_ok=True)
     path = bundle_path(session_key)
@@ -309,7 +334,9 @@ def _build(session_key: int, client: OpenF1Client, report: Progress) -> dict[str
 
     report("race_state", {"frames": len(frames)})
     stint_index = _stint_index(stints)
-    lap_state = _lap_state(laps, positions, intervals, stint_index, pits, t0)
+    lap_state = _lap_state(
+        laps, positions, intervals, stint_index, pits, _green_laps(laps, flag_timeline, t0), t0
+    )
 
     bundle = {
         "version": BUNDLE_VERSION,
@@ -964,14 +991,23 @@ def _lap_state(
     intervals: list[dict[str, Any]],
     stints: dict[int, list[dict[str, Any]]],
     pits: list[dict[str, Any]],
+    green_laps: set[int],
     t0: float,
 ) -> dict[str, list[dict[str, Any]]]:
     """Per lap, per car: the race state the prediction panel reasons over.
 
     Everything here is what a strategist would read off the timing screen --
     position, how quick the car is going, what it is running and how many stops
-    it has taken -- plus the comparative figure that matters most: pace relative
-    to the field's median on the same lap.
+    it has taken -- plus the comparative figure that matters most: how the car's
+    pace compares with the pace at the front.
+
+    Two things make that comparison honest. Only green laps count towards a
+    car's pace, because behind a safety car everyone is slow and none of it
+    says anything about how quick the car is. And the yardstick is the pace of
+    the leading quarter of the field rather than the field median: the median
+    is dragged around by cars pitting, cars in traffic and cars nursing a
+    problem, which is how every car on the grid can end up reading as quicker
+    than "average".
     """
     by_driver: dict[int, dict[int, dict[str, Any]]] = {}
     for lap in laps:
@@ -991,7 +1027,7 @@ def _lap_state(
         for number, driver_laps in by_driver.items():
             if lap_number not in driver_laps:
                 continue
-            pace = _rolling_pace(driver_laps, lap_number)
+            pace = _rolling_pace(driver_laps, lap_number, green_laps)
             compound, age = _tyre_at(stints.get(number, []), lap_number)
             rows.append(
                 {
@@ -1005,31 +1041,88 @@ def _lap_state(
                     "gap_to_leader_s": _round(gaps.get(lap_number, {}).get(number)),
                 }
             )
-        median = statistics.median([r["pace_s"] for r in rows if r["pace_s"]] or [0]) or None
+        reference = _reference_pace([r["pace_s"] for r in rows if r["pace_s"]])
         for row in rows:
-            # Comparative advantage: seconds a lap quicker than the field median.
+            # Comparative advantage: seconds a lap quicker than the front of
+            # the field. Negative for most of the grid, which is the point --
+            # only a handful of cars are genuinely quicker than the leaders.
+            row["reference_pace_s"] = reference
             row["pace_delta_s"] = (
-                _round(median - row["pace_s"]) if median and row["pace_s"] else None
+                _round(reference - row["pace_s"]) if reference and row["pace_s"] else None
             )
         rows.sort(key=lambda r: (r["position"] is None, r["position"] or 0))
         out[str(lap_number)] = rows
     return out
 
 
-def _rolling_pace(driver_laps: dict[int, dict[str, Any]], lap_number: int) -> float | None:
-    """Median of the recent representative laps -- traffic and stops excluded."""
-    window = [
-        float(driver_laps[n]["lap_duration"])
-        for n in range(max(1, lap_number - PACE_WINDOW_LAPS + 1), lap_number + 1)
+def _reference_pace(paces: list[float]) -> float | None:
+    """The pace at the front: the median of the quickest quarter of the field.
+
+    A single fastest lap is too noisy to measure a race against and the field
+    median is not a benchmark at all, since half the field is slower than it by
+    construction. The quickest quarter is what a car is actually racing.
+    """
+    if not paces:
+        return None
+    ordered = sorted(paces)
+    quickest = ordered[: max(1, round(len(ordered) * REFERENCE_PACE_QUANTILE))]
+    return round(statistics.median(quickest), 3)
+
+
+def _rolling_pace(
+    driver_laps: dict[int, dict[str, Any]],
+    lap_number: int,
+    green_laps: set[int],
+) -> float | None:
+    """Median of the recent green laps -- traffic, stops and neutralisations out.
+
+    Falls back to the unfiltered window when a car has no recent green lap at
+    all, which happens under a long safety car: a stale pace figure is more
+    useful than none, and the caller has the flag state to judge it by.
+    """
+    window_start = max(1, lap_number - PACE_WINDOW_LAPS + 1)
+    candidates = [
+        (n, driver_laps[n])
+        for n in range(window_start, lap_number + 1)
         if n in driver_laps
         and driver_laps[n].get("lap_duration")
         and not driver_laps[n].get("is_pit_out_lap")
     ]
+    green = [float(lap["lap_duration"]) for n, lap in candidates if n in green_laps]
+    window = green or [float(lap["lap_duration"]) for _n, lap in candidates]
     if not window:
         return None
     reference = statistics.median(window)
     clean = [t for t in window if t <= reference * PACE_OUTLIER_RATIO]
     return statistics.median(clean or window)
+
+
+def _green_laps(
+    laps: list[dict[str, Any]], flag_timeline: list[tuple[float, str]], t0: float
+) -> set[int]:
+    """Laps that ran green from start to finish.
+
+    A lap is only green if nothing interrupted it: a safety car deployed
+    mid-lap makes that lap useless as a measure of pace even though it began
+    under green.
+    """
+    boundaries = _lap_timeline(laps, t0)
+    if not boundaries:
+        return set()
+
+    green: set[int] = set()
+    state = "green"
+    cursor = 0
+    for index, (start, lap_number) in enumerate(boundaries):
+        end = boundaries[index + 1][0] if index + 1 < len(boundaries) else math.inf
+        # Advance the flag state to the start of this lap.
+        while cursor < len(flag_timeline) and flag_timeline[cursor][0] <= start:
+            state = flag_timeline[cursor][1]
+            cursor += 1
+        interrupted = any(start < moment < end for moment, _s in flag_timeline[cursor:])
+        if state == "green" and not interrupted:
+            green.add(lap_number)
+    return green
 
 
 def _positions_by_lap(
