@@ -583,6 +583,37 @@ def replay_prediction_coverage(
     }
 
 
+@app.get("/layouts/{circuit}", tags=["replays"])
+def circuit_layout(circuit: str, db: DBSession = Depends(get_db)) -> dict[str, Any]:
+    """The drawn shape of a circuit, from whichever race happens to have one.
+
+    A race that has not run has no position feed and so no geometry of its own,
+    but a circuit does not change between visits: the layout from any built
+    replay at the same track is the same layout. This is what lets an upcoming
+    round show its map instead of an apology.
+    """
+    wanted = circuit.strip().lower()
+    for row in replay_store.catalogue_rows(db):
+        name = (row.get("circuit") or "").lower()
+        if not name or (wanted not in name and name not in wanted):
+            continue
+        if not _ensure_local(row["session_key"]):
+            continue
+        bundle = replay.load_bundle(row["session_key"])
+        if bundle is None:
+            continue
+        return {
+            "circuit": row.get("circuit"),
+            "track": bundle["track"],
+            "source_session_key": row["session_key"],
+            "source_date": row.get("date_start"),
+        }
+    raise HTTPException(
+        status_code=404,
+        detail=f"no built replay carries a layout for {circuit}; build any race there first",
+    )
+
+
 @app.get("/replays/{session_key}/accuracy", tags=["replays"])
 def replay_accuracy(session_key: int, db: DBSession = Depends(get_db)) -> dict[str, Any]:
     """How close this replay's stored projections were to the classification.

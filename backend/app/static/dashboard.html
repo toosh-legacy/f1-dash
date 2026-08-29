@@ -7,12 +7,15 @@
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🏁</text></svg>" />
 <style>
 :root {
-  --bg: #0b0c0e;
-  --panel: #141619;
+  --bg: #0a0b0d;
+  --panel: rgba(20, 22, 25, 0.82);
+  --panel-solid: #141619;
   --panel-2: #1b1e23;
   --line: #262a31;
+  --line-soft: #1c1f24;
   --text: #e8eaed;
   --muted: #9aa0a6;
+  --dim: #6c727a;
   --mustard: #e3b341;
   --green: #35c46b;
   --amber: #f0b429;
@@ -25,180 +28,218 @@
 * { box-sizing: border-box; }
 html, body { height: 100%; }
 body {
-  margin: 0;
-  background: var(--bg);
-  color: var(--text);
+  margin: 0; background: var(--bg); color: var(--text);
   font: 400 14px/1.55 var(--ui);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
 }
 h1, h2, h3 { margin: 0; font-weight: 600; letter-spacing: -0.015em; }
-h2 { font-size: 15px; }
 button, select, input { font: inherit; color: inherit; }
 button {
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px;
-  padding: 7px 13px; cursor: pointer; font-weight: 500;
+  padding: 6px 12px; cursor: pointer; font-weight: 500;
   transition: background .15s, border-color .15s, color .15s;
 }
 button:hover:not(:disabled) { background: #23272e; border-color: #39404a; }
 button:disabled { opacity: .45; cursor: default; }
 button.primary { background: var(--mustard); border-color: var(--mustard); color: #17130a; font-weight: 650; }
 button.primary:hover:not(:disabled) { background: #efc457; }
-select, input[type=search] {
-  background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px;
+button.ghost { background: transparent; border-color: transparent; color: var(--muted); padding: 4px 8px; }
+button.ghost:hover:not(:disabled) { background: var(--panel-2); color: var(--text); }
+input[type=search], select {
+  background: rgba(27, 30, 35, .8); border: 1px solid var(--line); border-radius: 9px; padding: 9px 13px;
 }
-input[type=search]::placeholder { color: #6c727a; }
-input[type=search]:focus { outline: none; border-color: var(--mustard); }
+input[type=search]::placeholder { color: #5f656d; }
+input[type=search]:focus, select:focus { outline: none; border-color: var(--mustard); }
+
+/* ---------- the tube behind everything ----------
+   A dead channel, turned almost all the way down. It is decoration, so it
+   never takes a pointer event and it stops entirely when the tab is hidden or
+   the viewer has asked for less motion. */
+#tube {
+  position: fixed; inset: 0; width: 100%; height: 100%;
+  z-index: 0; pointer-events: none; opacity: .085;
+  mix-blend-mode: screen;
+}
+#tubeVeil {
+  position: fixed; inset: 0; z-index: 1; pointer-events: none;
+  background: radial-gradient(120% 90% at 50% 0%, rgba(10,11,13,.55), rgba(10,11,13,.93) 70%);
+}
+.above { position: relative; z-index: 2; }
 
 /* ---------- shell ---------- */
 header {
-  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
-  padding: 11px 20px; border-bottom: 1px solid var(--line);
-  background: linear-gradient(180deg, #131519, #0e1013);
-  position: sticky; top: 0; z-index: 30;
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 10px 18px; border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(19,21,25,.92), rgba(14,16,19,.92));
+  backdrop-filter: blur(8px);
+  position: sticky; top: 0; z-index: 40;
 }
-.brand { display: flex; align-items: baseline; gap: 10px; cursor: pointer; }
-.brand b { font-size: 16px; font-weight: 700; letter-spacing: -0.03em; }
-.brand span { color: var(--muted); font-size: 12px; }
-
-/* The tab strip is the main navigation, so it is set like navigation: a
-   heavier face with open tracking, and a lit underline on the active tab
-   rather than a filled box, which reads as a control rather than a chip. */
-.tabs { display: flex; gap: 2px; margin-left: 6px; }
-.tab {
-  background: transparent; border: none; border-bottom: 2px solid transparent;
-  border-radius: 0; color: var(--muted);
-  padding: 7px 14px 6px; font-size: 13px; font-weight: 600; letter-spacing: .015em;
-}
-.tab:hover:not(.active) { background: transparent; color: #cdd3da; }
-.tab.active { color: var(--text); border-bottom-color: var(--mustard); background: transparent; }
-
+.brand { display: flex; align-items: baseline; gap: 9px; }
+.brand b { font-size: 15px; font-weight: 700; letter-spacing: -0.03em; }
+.brand span { color: var(--dim); font-size: 11.5px; }
 .spacer { flex: 1; }
 .status { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
-.dot { width: 8px; height: 8px; border-radius: 50%; background: #4a4f57; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: #4a4f57; flex: none; }
 .dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); }
 .dot.error { background: var(--red); box-shadow: 0 0 8px var(--red); }
 .pill {
   font-size: 11px; padding: 2px 9px; border-radius: 999px;
-  border: 1px solid var(--line); background: var(--panel-2); color: var(--muted);
+  border: 1px solid var(--line); background: rgba(27,30,35,.7); color: var(--muted);
 }
 
-main { padding: 18px 20px 40px; max-width: 1560px; margin: 0 auto; }
-.view[hidden] { display: none; }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; }
-.empty { color: var(--muted); padding: 22px; text-align: center; }
+main { padding: 16px 18px 40px; max-width: 1720px; margin: 0 auto; }
 
-/* ---------- entrance ---------- */
-/* Scoped to :not([hidden]) deliberately: an id rule's display beats the
-   attribute selector that hides views, so without this the entrance stays on
-   screen underneath whatever view is meant to have replaced it. */
-#view-entrance:not([hidden]) { display: grid; place-items: center; min-height: 68vh; }
-.entrance { text-align: center; max-width: 660px; }
-.entrance h1 {
-  font-size: clamp(32px, 6vw, 52px); font-weight: 700; letter-spacing: -0.04em;
-  line-height: 1.05; margin-bottom: 12px;
+/* ---------- search ---------- */
+.finder { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+.finder .field { position: relative; flex: 1; min-width: 260px; max-width: 560px; }
+.finder input[type=search] { width: 100%; padding-left: 34px; }
+.finder .field::before {
+  content: "⌕"; position: absolute; left: 12px; top: 50%; transform: translateY(-50%);
+  color: var(--dim); font-size: 15px; pointer-events: none;
 }
-.entrance h1 em { font-style: normal; color: var(--mustard); }
-.entrance p { color: var(--muted); font-size: 15px; margin: 0 0 26px; }
-.entrance .target {
-  display: inline-flex; align-items: center; gap: 10px; margin-bottom: 22px;
-  padding: 10px 16px; border: 1px solid var(--line); border-radius: 999px;
-  background: var(--panel); font-size: 13px;
+.results {
+  position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 30;
+  background: var(--panel-solid); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 22px 50px rgba(0,0,0,.55); max-height: 340px; overflow: auto;
 }
-.entrance .target b { font-weight: 650; }
-.entrance .actions { display: flex; gap: 10px; justify-content: center; }
-#connectBig { font-size: 15px; padding: 12px 30px; border-radius: 10px; }
-#browseReplays { font-size: 15px; padding: 12px 22px; border-radius: 10px; }
-.entrance .aside { margin-top: 22px; color: #6c727a; font-size: 12px; }
+.results[hidden] { display: none; }
+.result {
+  display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center;
+  padding: 9px 13px; border-bottom: 1px solid var(--line-soft); cursor: pointer;
+}
+.result:last-child { border-bottom: none; }
+.result:hover, .result.active { background: var(--panel-2); }
+.result b { font-weight: 650; font-size: 13.5px; }
+.result small { color: var(--dim); font-size: 11.5px; display: block; }
+.badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+.badge.ready { color: var(--green); border-color: #1e5c37; background: #10261a; }
+.badge.soon { color: var(--mustard); border-color: #5c4a1a; background: #241d0c; }
 
-/* ---------- map ---------- */
-.map-grid { display: grid; grid-template-columns: minmax(0, 1fr) 370px; gap: 16px; align-items: start; }
-@media (max-width: 1150px) { .map-grid { grid-template-columns: 1fr; } }
-
-.map-head {
-  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-  padding: 12px 16px; border-bottom: 1px solid var(--line);
+/* ---------- widget board ---------- */
+/* A twelve-column bed of short rows: a panel claims a span of each, so
+   resizing is a whole number of cells rather than a pixel free-for-all, and
+   panels stay aligned with each other however they are arranged. Items must
+   stretch to the span they claim, so no align-items here. */
+#board {
+  display: grid; grid-template-columns: repeat(12, 1fr);
+  grid-auto-rows: 26px; gap: 14px;
 }
-.map-head .titling { min-width: 0; }
-.map-head .where { font-size: 19px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.2; }
-.map-head .when { color: var(--muted); font-size: 12px; margin-top: 2px; }
-.flag {
-  font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
-  padding: 3px 10px; border-radius: 999px; border: 1px solid;
+.widget {
+  grid-column: span var(--col, 6); grid-row: span var(--row, 12);
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  backdrop-filter: blur(9px);
+  display: flex; flex-direction: column; overflow: hidden; position: relative;
+  transition: border-color .15s, box-shadow .15s;
 }
-.flag.green { color: var(--green); border-color: #1e5c37; background: #10261a; }
-.flag.yellow { color: var(--amber); border-color: #6b5314; background: #241d0c; }
-.flag.vsc, .flag.safety_car { color: var(--amber); border-color: #6b5314; background: #2a2110; }
-.flag.red_flag { color: var(--red); border-color: #6d2222; background: #2a1212; }
+.widget:hover { border-color: #333a44; }
+.widget.dragging { opacity: .55; border-color: var(--mustard); }
+.widget.drop-target { border-color: var(--mustard); box-shadow: 0 0 0 1px var(--mustard) inset; }
+.w-head {
+  display: flex; align-items: center; gap: 9px; padding: 9px 12px;
+  border-bottom: 1px solid var(--line-soft); cursor: grab; user-select: none; flex: none;
+}
+.w-head:active { cursor: grabbing; }
+.w-head h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); font-weight: 600; }
+.w-head .grip { color: #454b54; letter-spacing: -2px; font-size: 13px; }
+.w-body { flex: 1; overflow: auto; min-height: 0; }
+.w-resize {
+  position: absolute; right: 0; bottom: 0; width: 18px; height: 18px;
+  cursor: nwse-resize; opacity: 0; transition: opacity .15s;
+  background: linear-gradient(135deg, transparent 48%, #4b525c 50%, transparent 52%,
+                                       transparent 62%, #4b525c 64%, transparent 66%);
+}
+.widget:hover .w-resize { opacity: 1; }
+@media (max-width: 900px) {
+  #board { grid-template-columns: 1fr; }
+  .widget { grid-column: 1 / -1; }
+}
 
-#mapWrap { position: relative; background: radial-gradient(120% 100% at 50% 0%, #14161a, #0b0c0e 70%); }
-svg#map { display: block; width: 100%; height: min(64vh, 660px); }
+/* ---------- map widget ---------- */
+#mapWrap { position: relative; flex: 1; min-height: 0; display: flex; }
+svg#map { display: block; width: 100%; height: 100%; }
 #trackGlow { fill: none; stroke: #a8842f; stroke-width: 30; stroke-linejoin: round;
   stroke-linecap: round; opacity: .13; filter: blur(11px); }
 #trackHalo { fill: none; stroke: #b8912f; stroke-width: 19; stroke-linejoin: round;
   stroke-linecap: round; opacity: .16; filter: blur(4px); }
 #trackLine { fill: none; stroke: var(--mustard); stroke-width: 15; stroke-linejoin: round;
   stroke-linecap: round; opacity: .85; }
-#trackSurface { fill: none; stroke: #101216; stroke-width: 11; stroke-linejoin: round;
+#trackSurface { fill: none; stroke: #0e1013; stroke-width: 11; stroke-linejoin: round;
   stroke-linecap: round; }
 #pitLine { fill: none; stroke: #55606c; stroke-width: 7; stroke-linejoin: round;
   stroke-linecap: round; opacity: .55; }
-#pitSurface { fill: none; stroke: #101216; stroke-width: 4; stroke-linejoin: round;
-  stroke-linecap: round; }
-#startLine { stroke: #ffffff; stroke-width: 3.5; opacity: .85; }
+#pitSurface { fill: none; stroke: #0e1013; stroke-width: 4; stroke-linejoin: round; stroke-linecap: round; }
+#startLine { stroke: #fff; stroke-width: 3.5; opacity: .85; }
 .car { cursor: pointer; }
-.car-dot { r: 13; stroke: #0b0c0e; stroke-width: 2; transition: r .12s; }
+.car-dot { r: 13; stroke: #0a0b0d; stroke-width: 2; transition: r .12s; }
 .car:hover .car-dot { r: 15; }
-.car-label { font-size: 12px; font-weight: 800; fill: #0b0c0e; text-anchor: middle;
+.car-label { font-size: 12px; font-weight: 800; fill: #0a0b0d; text-anchor: middle;
   dominant-baseline: central; pointer-events: none; letter-spacing: -0.02em; }
-.car-name { font-size: 10.5px; font-weight: 700; fill: #e8eaed; text-anchor: middle;
-  paint-order: stroke; stroke: #0b0c0e; stroke-width: 3.5; stroke-linejoin: round;
-  pointer-events: none; }
+.car-name { font-size: 10.5px; font-weight: 700; fill: var(--text); text-anchor: middle;
+  paint-order: stroke; stroke: #0a0b0d; stroke-width: 3.5; stroke-linejoin: round; pointer-events: none; }
 .car.pit .car-dot { opacity: .55; }
 .car-tag { font-size: 9.5px; font-weight: 700; fill: var(--amber); text-anchor: middle;
-  paint-order: stroke; stroke: #0b0c0e; stroke-width: 3; }
+  paint-order: stroke; stroke: #0a0b0d; stroke-width: 3; }
 .car.selected .car-dot { stroke: #fff; stroke-width: 2.5; }
 .selected .car-name { fill: #fff; }
 
-/* ---------- transport ---------- */
-.transport { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); }
-.transport .clock { font-family: var(--mono); font-size: 12px; color: var(--muted); min-width: 104px; }
-.scrubwrap { flex: 1; display: flex; flex-direction: column; gap: 5px; }
-.scrubwrap input[type=range] { width: 100%; accent-color: var(--mustard); margin: 0; }
-/* The whole race as one bar: where it ran green, and where it did not. A
-   scrubber with no marks makes you hunt for the safety car by dragging. */
-#flagStrip { height: 4px; border-radius: 2px; background: #23272e; overflow: hidden; }
-.lapcount { font-variant-numeric: tabular-nums; font-weight: 650; min-width: 96px; }
-
-/* ---------- side column ---------- */
-.side { display: flex; flex-direction: column; max-height: min(80vh, 860px); }
-.side-tabs { display: flex; gap: 2px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); }
-.side-tab {
-  background: transparent; border: none; border-bottom: 2px solid transparent; border-radius: 0;
-  color: var(--muted); font-size: 12.5px; font-weight: 600; letter-spacing: .015em;
-  padding: 7px 12px 8px;
+/* the newest race-control call, over the track it applies to */
+#rcOverlay {
+  position: absolute; left: 14px; right: 14px; bottom: 12px; z-index: 3;
+  display: flex; align-items: center; gap: 10px; pointer-events: none;
+  padding: 8px 12px; border-radius: 10px;
+  background: linear-gradient(90deg, rgba(12,13,16,.92), rgba(12,13,16,.72));
+  border: 1px solid var(--line); backdrop-filter: blur(6px);
+  font-size: 12.5px; opacity: 0; transform: translateY(6px); transition: opacity .25s, transform .25s;
 }
-.side-tab.active { color: var(--text); border-bottom-color: var(--mustard); }
-.side-body { overflow: auto; flex: 1; }
-/* The projection table is wider than the column it lives in, so it scrolls on
-   its own rather than clipping the model's answer off the right-hand edge. */
-#panelBody { overflow-x: auto; }
-#panelBody th, #panelBody td { padding: 8px 7px; white-space: nowrap; }
-.side-foot { border-top: 1px solid var(--line); padding: 11px 14px; color: var(--muted); font-size: 12px; }
+#rcOverlay.on { opacity: 1; transform: none; }
+#rcOverlay .msg { color: #cfd5dc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#rcOverlay .at { color: var(--dim); font-family: var(--mono); font-size: 11px; flex: none; }
 
+/* the countdown, in the middle of the circuit it counts down to */
+#countdown {
+  position: absolute; inset: 0; display: grid; place-content: center; text-align: center;
+  pointer-events: none; z-index: 2;
+}
+#countdown[hidden] { display: none; }
+#countdown .k { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+#countdown .t {
+  font-family: var(--mono); font-size: clamp(28px, 4.4vw, 54px); font-weight: 600;
+  letter-spacing: -0.02em; color: var(--text); margin: 6px 0 2px;
+  text-shadow: 0 0 30px rgba(227,179,65,.25);
+}
+#countdown .w { color: var(--dim); font-size: 12px; }
+
+.flag {
+  font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 999px; border: 1px solid; flex: none;
+}
+.flag.green { color: var(--green); border-color: #1e5c37; background: #10261a; }
+.flag.yellow { color: var(--amber); border-color: #6b5314; background: #241d0c; }
+.flag.vsc, .flag.safety_car { color: var(--amber); border-color: #6b5314; background: #2a2110; }
+.flag.red_flag { color: var(--red); border-color: #6d2222; background: #2a1212; }
+
+/* ---------- transport ---------- */
+.transport { display: flex; align-items: center; gap: 11px; padding: 10px 12px;
+  border-top: 1px solid var(--line-soft); flex: none; }
+.transport .clock { font-family: var(--mono); font-size: 11.5px; color: var(--muted); min-width: 98px; }
+.lapcount { font-variant-numeric: tabular-nums; font-weight: 650; min-width: 88px; font-size: 13px; }
+.scrubwrap { flex: 1; display: flex; flex-direction: column; gap: 5px; min-width: 80px; }
+.scrubwrap input[type=range] { width: 100%; accent-color: var(--mustard); margin: 0; }
+#flagStrip { height: 4px; border-radius: 2px; background: #23272e; }
+
+/* ---------- lists ---------- */
 .order-row {
   display: grid; grid-template-columns: 22px 4px 1fr auto; gap: 9px; align-items: center;
-  padding: 7px 13px; border-bottom: 1px solid #1a1d21; cursor: pointer;
-  transition: background .12s;
+  padding: 6px 13px; border-bottom: 1px solid var(--line-soft); cursor: pointer;
 }
 .order-row:hover { background: var(--panel-2); }
 .order-row.leader { background: linear-gradient(90deg, rgba(227,179,65,.07), transparent 60%); }
 .order-row .pos { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; font-size: 12px; }
 .order-row.leader .pos { color: var(--mustard); font-weight: 700; }
-.order-row .bar { width: 4px; height: 22px; border-radius: 2px; }
+.order-row .bar { width: 4px; height: 21px; border-radius: 2px; }
 .order-row .who { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .order-row .who b { font-size: 13px; font-weight: 700; letter-spacing: -0.01em; }
-.order-row .who small { color: #7c828a; font-size: 11px; overflow: hidden;
+.order-row .who small { color: var(--dim); font-size: 11px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; }
 .order-row .gap { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px;
   display: flex; align-items: center; gap: 7px; }
@@ -210,253 +251,106 @@ svg#map { display: block; width: 100%; height: min(64vh, 660px); }
 .tyre.INTERMEDIATE { color: var(--green); border-color: #1e5c37; }
 .tyre.WET { color: var(--blue); border-color: #1c4a63; }
 
-/* ---------- the model's read ---------- */
-.thinking { padding: 14px 14px 4px; }
-.thinking h3 { font-size: 11.5px; text-transform: uppercase; letter-spacing: .09em;
-  color: var(--muted); margin-bottom: 9px; font-weight: 600; }
-.thinking ul { margin: 0; padding-left: 17px; }
-.thinking li { margin-bottom: 7px; font-size: 13px; }
-.thinking li b { font-weight: 650; }
-.askBtn { margin: 4px 14px 12px; }
+.rc-row {
+  display: grid; grid-template-columns: 56px 70px 1fr; gap: 9px; align-items: center;
+  padding: 6px 13px; border-bottom: 1px solid var(--line-soft); font-size: 12.5px;
+}
+.rc-row:hover { background: var(--panel-2); }
+.rc-row .at { color: var(--dim); font-family: var(--mono); font-size: 11px; }
+.rc-row .msg { color: #b9bfc7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* ---------- tables ---------- */
 table { width: 100%; border-collapse: collapse; }
-th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #1c1f24; }
+th, td { padding: 7px 8px; text-align: left; border-bottom: 1px solid var(--line-soft); }
 th { color: var(--muted); font-weight: 550; font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em; }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 tbody tr:hover { background: var(--panel-2); }
 .up { color: var(--green); } .down { color: var(--red); }
 .formula { font-family: var(--mono); font-size: 11px; color: #b9bfc7; }
+.empty { color: var(--muted); padding: 20px; text-align: center; font-size: 13px; }
 
-/* ---------- replay library ---------- */
-.searchbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
-.searchbar input[type=search] { flex: 1; max-width: 460px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(255px, 1fr)); gap: 12px; }
-.replay-card { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
-.replay-card .top { display: flex; justify-content: space-between; align-items: start; gap: 10px; }
-.replay-card b { font-size: 15px; font-weight: 650; }
-.replay-card .meta { color: var(--muted); font-size: 12px; }
-.replay-card .actions { display: flex; gap: 8px; margin-top: auto; align-items: center; }
-.badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
-.badge.ready { color: var(--green); border-color: #1e5c37; background: #10261a; }
+.thinking { padding: 12px 13px 4px; }
+.thinking h3 { font-size: 11px; text-transform: uppercase; letter-spacing: .09em;
+  color: var(--muted); margin-bottom: 8px; font-weight: 600; }
+.thinking ul { margin: 0; padding-left: 17px; }
+.thinking li { margin-bottom: 6px; font-size: 13px; }
+.side-foot { border-top: 1px solid var(--line-soft); padding: 10px 13px; color: var(--muted); font-size: 12px; }
 
-/* ---------- race control ---------- */
-#rcCard { margin-top: 16px; }
-#rcLog { max-height: 216px; overflow: auto; }
-.rc-row {
-  display: grid; grid-template-columns: 62px 74px 1fr; gap: 10px; align-items: center;
-  padding: 6px 16px; border-bottom: 1px solid #1a1d21; font-size: 12.5px;
+/* ---------- panels menu ---------- */
+.menu { position: relative; }
+.menu-body {
+  position: absolute; right: 0; top: calc(100% + 8px); z-index: 45; min-width: 210px;
+  background: var(--panel-solid); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 22px 50px rgba(0,0,0,.55); padding: 6px;
 }
-.rc-row:hover { background: var(--panel-2); }
-.rc-row .at { color: #6c727a; font-family: var(--mono); font-size: 11.5px; }
-.rc-row .msg { color: #b9bfc7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-body[hidden] { display: none; }
+.menu-body label {
+  display: flex; align-items: center; gap: 9px; padding: 7px 9px; border-radius: 7px;
+  font-size: 13px; cursor: pointer;
+}
+.menu-body label:hover { background: var(--panel-2); }
+.menu-body input { accent-color: var(--mustard); }
+.menu-body hr { border: none; border-top: 1px solid var(--line-soft); margin: 6px 4px; }
+.menu-body button { width: 100%; }
 
-/* ---------- live view ---------- */
-.stack { display: grid; gap: 16px; }
-.section-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-.banner { display: none; margin: 12px 16px; padding: 10px 12px; border-radius: 8px;
-  background: #2a2110; border: 1px solid #6b5314; color: var(--amber); font-size: 13px; }
-.banner.on { display: block; }
-#log { max-height: 220px; overflow: auto; padding: 10px 16px; font-family: var(--mono);
+#log { max-height: 100%; overflow: auto; padding: 8px 13px; font-family: var(--mono);
   font-size: 11.5px; color: var(--muted); }
 #log div { padding: 2px 0; border-bottom: 1px solid #17191d; }
-footer { color: var(--muted); font-size: 12px; padding: 24px 20px 40px; max-width: 1560px; margin: 0 auto;
-  border-top: 1px solid var(--line); display: flex; gap: 22px; flex-wrap: wrap; }
-footer b { color: #c6ccd3; font-weight: 600; }
 </style>
 </head>
 <body>
 
-<header>
-  <div class="brand" id="brand"><b>F1 2026</b><span>live prediction dashboard</span></div>
-  <div class="tabs">
-    <button class="tab" data-view="entrance">Start</button>
-    <button class="tab active" data-view="dash">Race dash</button>
-    <button class="tab" data-view="replays">Replays</button>
-    <button class="tab" data-view="live">Live session</button>
-  </div>
+<canvas id="tube"></canvas>
+<div id="tubeVeil"></div>
+
+<header class="above">
+  <div class="brand"><b>F1 2026</b><span>live prediction dashboard</span></div>
   <div class="spacer"></div>
   <span class="pill" id="regime">regime —</span>
+  <div class="menu">
+    <button id="panelsBtn">Panels</button>
+    <div class="menu-body" id="panelsMenu" hidden></div>
+  </div>
   <div class="status"><span class="dot" id="dot"></span><span id="statusText">idle</span></div>
 </header>
 
-<main>
-  <!-- ===================== ENTRANCE ===================== -->
-  <section class="view" id="view-entrance" hidden>
-    <div class="entrance">
-      <h1>Watch the race<br /><em>and what the model makes of it</em></h1>
-      <p>Per-car predictions on two clocks: a model retrained after each session,
-         and inference that runs while the cars are on track.</p>
-      <div class="target" id="connectTarget"><span class="dot"></span><span>finding the session…</span></div>
-      <div class="actions">
-        <button id="connectBig" class="primary">Connect</button>
-        <button id="browseReplays">Browse replays</button>
-      </div>
-      <div class="aside" id="connectAside"></div>
+<main class="above">
+  <div class="finder">
+    <div class="field">
+      <input type="search" id="search" placeholder="Search a race — circuit, country, month…" autocomplete="off" />
+      <div class="results" id="results" hidden></div>
     </div>
-  </section>
+    <span class="pill" id="seasonPill">—</span>
+    <div class="spacer"></div>
+    <select id="speed" title="playback speed">
+      <option value="1">1×</option>
+      <option value="4">4×</option>
+      <option value="10" selected>10×</option>
+      <option value="30">30×</option>
+      <option value="60">60×</option>
+    </select>
+    <button id="resetLayout" title="put the panels back where they started">Reset layout</button>
+  </div>
 
-  <!-- ===================== RACE DASH ===================== -->
-  <section class="view" id="view-dash">
-    <div class="map-grid">
-      <div class="card">
-        <div class="map-head">
-          <div class="titling">
-            <div class="where" id="mapWhere">loading…</div>
-            <div class="when" id="mapWhen">—</div>
-          </div>
-          <div class="spacer"></div>
-          <span class="pill" id="nextUp" hidden></span>
-          <button id="askModel">What is the model thinking?</button>
-          <span class="flag green" id="flagChip">green</span>
-        </div>
-
-        <div id="mapWrap">
-          <svg id="map" viewBox="0 0 1000 640" preserveAspectRatio="xMidYMid meet">
-            <path id="trackGlow" /><path id="trackHalo" />
-            <path id="pitLine" /><path id="pitSurface" />
-            <path id="trackLine" /><path id="trackSurface" />
-            <line id="startLine" />
-            <g id="cars"></g>
-            <g id="carLabels"></g>
-          </svg>
-          <div class="empty" id="mapEmpty" hidden>No replay loaded.</div>
-        </div>
-
-        <div class="transport">
-          <button id="playBtn" class="primary">▶</button>
-          <span class="lapcount" id="lapCount">lap —</span>
-          <div class="scrubwrap">
-            <input type="range" id="scrub" min="0" max="100" value="0" step="1" />
-            <div id="flagStrip" title="flag state through the race"></div>
-          </div>
-          <span class="clock" id="clock">0:00 / 0:00</span>
-          <select id="speed">
-            <option value="1">1×</option>
-            <option value="4">4×</option>
-            <option value="10" selected>10×</option>
-            <option value="30">30×</option>
-            <option value="60">60×</option>
-          </select>
-        </div>
-      </div>
-
-      <div class="card side">
-        <div class="side-tabs">
-          <button class="side-tab active" data-side="order">Running order</button>
-          <button class="side-tab" data-side="prediction">Prediction</button>
-        </div>
-
-        <div class="side-body" id="sideOrder">
-          <div id="order"><div class="empty">Waiting for the replay.</div></div>
-        </div>
-
-        <div class="side-body" id="sidePrediction" hidden>
-          <div class="thinking" id="thinking"><h3>What the model is thinking</h3></div>
-          <button class="askBtn" id="askAgain">Ask again for this lap</button>
-          <div id="panelBody"></div>
-          <div class="side-foot">
-            <span class="pill" id="panelCoverage">—</span>
-            <div id="panelAccuracy" style="margin-top:8px;color:#c6ccd3"></div>
-            <div id="panelNote" style="margin-top:8px"></div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="card" id="rcCard">
-      <div class="section-head">
-        <h2>Race control</h2>
-        <span class="spacer"></span>
-        <span class="pill" id="rcCount">—</span>
-      </div>
-      <div id="rcLog"><div class="empty">No messages.</div></div>
-    </div>
-  </section>
-
-  <!-- ===================== REPLAYS ===================== -->
-  <section class="view" id="view-replays" hidden>
-    <div class="searchbar">
-      <input type="search" id="replaySearch" placeholder="Search a race — circuit, country, month…" autocomplete="off" />
-      <span class="pill" id="replayCount">—</span>
-      <span class="spacer"></span>
-      <button id="refreshReplays">Refresh</button>
-    </div>
-    <div class="grid" id="replayGrid"><div class="empty">Loading the season…</div></div>
-  </section>
-
-  <!-- ===================== LIVE ===================== -->
-  <section class="view" id="view-live" hidden>
-    <div class="section-head" style="padding-left:0;border:none">
-      <select id="sessionSelect"><option value="">loading sessions…</option></select>
-      <button id="connectBtn">Connect</button>
-      <span class="spacer"></span>
-      <span class="pill">predictions stream over a websocket</span>
-    </div>
-
-    <div class="stack">
-      <div class="card">
-        <div class="section-head"><h2>Practice — current form</h2></div>
-        <div class="empty" id="practiceEmpty">Select a practice session to load completed-lap form.</div>
-        <table id="practiceTable" hidden>
-          <thead><tr><th>Driver</th><th>Team</th><th class="num">Best lap</th><th class="num">Gap</th><th class="num">Laps</th><th>Tyre</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-
-      <div class="card">
-        <div class="section-head"><h2>Qualifying — predictions</h2><span class="spacer"></span><span class="pill" id="periodPill">—</span></div>
-        <div class="empty" id="qualiEmpty">Waiting for a qualifying update…</div>
-        <table id="qualiTable" hidden>
-          <thead><tr><th class="num">#</th><th>Driver</th><th>Team</th><th class="num">Predicted lap</th><th class="num">Advance</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-
-      <div class="card">
-        <div class="section-head"><h2>Race — predictions</h2><span class="spacer"></span><span class="pill" id="lapPill">—</span></div>
-        <div class="banner" id="gateBanner"></div>
-        <div class="empty" id="raceEmpty">Waiting for a race update…</div>
-        <table id="raceTable" hidden>
-          <thead><tr><th class="num">#</th><th>Driver</th><th>Team</th><th class="num">Predicted finish</th><th>Likely strategy</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
-
-      <div class="card">
-        <div class="section-head"><h2>Event log</h2></div>
-        <div id="log"></div>
-      </div>
-    </div>
-  </section>
+  <div id="board"></div>
 </main>
-
-<footer>
-  <div><b>Retraining is a batch job.</b> It runs after a session ends, never on a request path.</div>
-  <div><b>Every model version passes a gate.</b> A worse score, or an implausibly good one, is refused.</div>
-  <div><b>The 2026 transfer table is code.</b> Car and tyre features never learn from pre-2026 data.</div>
-  <div><b>Race predictions are gated off green.</b> Safety car, VSC and red flag mark them low-confidence.</div>
-</footer>
 
 <script>
 "use strict";
 
 /* ==========================================================================
- * Two clocks, like the backend. The replay player runs on its own wall clock
- * over a downloaded bundle; the live view runs on the server's websocket.
- * Nothing here ever asks for a model to be retrained -- that is a background
- * job on the server by design.
+ * One page. A race is chosen from the search bar; if it has run it plays, and
+ * if it has not, the circuit stands with a countdown in the middle of it.
+ * Everything else is a panel the viewer can move, resize or put away.
  * ====================================================================== */
 
 const params = new URLSearchParams(location.search);
 const el = (id) => document.getElementById(id);
 const svgNS = "http://www.w3.org/2000/svg";
+const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 let API = params.get("api") || "";
 let WS_BASE = "";
 
-/** Find the API. Served by the Node host it lives under /api; served by
- *  FastAPI itself it is the origin. Probing beats configuring. */
 async function detectApi() {
   const candidates = API ? [API] : [location.origin + "/api", location.origin];
   for (const base of candidates) {
@@ -479,137 +373,282 @@ function setStatus(text, state) {
   el("dot").className = "dot" + (state ? " " + state : "");
 }
 
-function log(message) {
-  const line = document.createElement("div");
-  line.textContent = `${new Date().toLocaleTimeString()}  ${message}`;
-  el("log").prepend(line);
-  while (el("log").children.length > 120) el("log").lastChild.remove();
-}
-
 const clock = (seconds) => {
   const s = Math.max(0, Math.round(seconds));
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 };
-
 const when = (iso) => (iso ? new Date(iso).toLocaleString(undefined,
   { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "");
 
-/* ========================== view switching ============================== */
+/* ======================================================================
+ * The board: panels the viewer arranges
+ * ================================================================== */
 
-function showView(name) {
-  for (const view of document.querySelectorAll(".view")) {
-    view.hidden = view.id !== `view-${name}`;
-  }
-  for (const tab of document.querySelectorAll(".tab")) {
-    tab.classList.toggle("active", tab.dataset.view === name);
-  }
-  if (name === "replays" && !replayCatalogue) loadCatalogue();
-}
-for (const tab of document.querySelectorAll(".tab")) {
-  tab.addEventListener("click", () => showView(tab.dataset.view));
-}
-el("brand").addEventListener("click", () => showView("entrance"));
+const PANELS = [
+  { id: "map",        title: "Circuit",        col: 8, row: 21, always: true },
+  { id: "order",      title: "Running order",  col: 4, row: 21 },
+  { id: "prediction", title: "Prediction",     col: 5, row: 14 },
+  { id: "control",    title: "Race control",   col: 4, row: 14 },
+  { id: "log",        title: "Live feed",      col: 3, row: 14, off: true },
+];
 
-/** The prediction is a tab beside the map, not a thing that covers it: the
- *  point is to read the model's answer against the race it is answering. */
-function showSide(name) {
-  el("sideOrder").hidden = name !== "order";
-  el("sidePrediction").hidden = name !== "prediction";
-  for (const tab of document.querySelectorAll(".side-tab")) {
-    tab.classList.toggle("active", tab.dataset.side === name);
-  }
-  if (name === "prediction" && player.bundle) {
-    refreshProjection(player.lap || 1);
-    showCoverage();
-  }
-}
-for (const tab of document.querySelectorAll(".side-tab")) {
-  tab.addEventListener("click", () => showSide(tab.dataset.side));
-}
-el("askModel").addEventListener("click", () => showSide("prediction"));
-el("askAgain").addEventListener("click", () => refreshProjection(player.lap || 1, { fresh: true }));
+const LAYOUT_KEY = "f1dash.layout.v1";
+let layout = loadLayout();
 
-/* ============================== entrance =============================== */
-
-let entryPoint = null;
-
-/** What Connect will open, and why. The server decides: a session being polled
- *  now, otherwise whatever is next on the calendar -- practice included, since
- *  on a Friday that is the session people want -- and the last race either way. */
-async function loadEntrance() {
+function loadLayout() {
+  const base = {};
+  PANELS.forEach((panel, index) => {
+    base[panel.id] = { col: panel.col, row: panel.row, order: index, visible: !panel.off };
+  });
   try {
-    entryPoint = await api("/now");
-  } catch (error) {
-    el("connectTarget").innerHTML = '<span class="dot error"></span><span>API unreachable</span>';
-    return;
-  }
-  el("regime").textContent = `regime ${entryPoint.regs_regime} · season ${entryPoint.season}`;
-
-  const target = el("connectTarget");
-  if (entryPoint.live) {
-    target.innerHTML = `<span class="dot live"></span>
-      <span><b>${entryPoint.live.circuit} ${entryPoint.live.session_type}</b> is running now</span>`;
-  } else if (entryPoint.next_session && entryPoint.next_session.session_id) {
-    const next = entryPoint.next_session;
-    target.innerHTML = `<span class="dot"></span>
-      <span>next up: <b>${next.circuit} ${next.session_type}</b> · ${when(next.start_time)}</span>`;
-  } else if (entryPoint.latest_replay) {
-    target.innerHTML = `<span class="dot"></span>
-      <span>last race: <b>${entryPoint.latest_replay.circuit}</b></span>`;
-  } else {
-    target.innerHTML = '<span class="dot"></span><span>nothing scheduled</span>';
-  }
-
-  el("connectAside").textContent = entryPoint.replays_built
-    ? `${entryPoint.replays_built} race${entryPoint.replays_built === 1 ? "" : "s"} ready to replay`
-    : "no replays built yet — build one from the Replays tab";
+    const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "null");
+    if (saved) for (const id of Object.keys(base)) Object.assign(base[id], saved[id] || {});
+  } catch (_) { /* a corrupt layout is not worth a broken page */ }
+  base.map.visible = true;  // the circuit is the page
+  return base;
 }
 
-/** Open the map on whatever Connect resolved to.
- *
- *  A live session goes to the websocket as well as the map. A session with no
- *  replay of its own -- a practice session, or a race that has not run -- still
- *  gets a map: the most recent built race, so there is a circuit on screen
- *  rather than an apology. */
-async function connect() {
-  if (!entryPoint) await loadEntrance();
-  showView("dash");
+function saveLayout() {
+  try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout)); } catch (_) {}
+}
 
-  const live = entryPoint && entryPoint.live;
-  if (live && live.session_id) {
-    connectSocket(live.session_id);
-    if (live.openf1_session_key && await openReplay(live.openf1_session_key, { quiet: true })) return;
-  }
+/** Panel bodies are built once and moved around, never re-rendered on layout
+ *  changes: a re-render would lose scroll position and the playing map. */
+const bodies = {};
 
-  const upcoming = entryPoint && entryPoint.next_session;
-  const latest = entryPoint && entryPoint.latest_replay;
-  if (latest && await openReplay(latest.session_key, { quiet: true })) {
-    if (upcoming && upcoming.session_id && !live) {
-      const chip = el("nextUp");
-      chip.textContent = `next: ${upcoming.session_type}, ${when(upcoming.start_time)}`;
-      chip.hidden = false;
+function buildBoard() {
+  const board = el("board");
+  board.textContent = "";
+  const ordered = PANELS.slice().sort((a, b) => layout[a.id].order - layout[b.id].order);
+
+  for (const panel of ordered) {
+    const state = layout[panel.id];
+    if (!state.visible) continue;
+
+    const widget = document.createElement("section");
+    widget.className = "widget";
+    widget.dataset.panel = panel.id;
+    widget.style.setProperty("--col", state.col);
+    widget.style.setProperty("--row", state.row);
+
+    const head = document.createElement("div");
+    head.className = "w-head";
+    head.innerHTML = `<span class="grip">⠿</span><h2>${panel.title}</h2><span class="spacer"></span>`;
+    head.append(headExtras(panel.id));
+    if (!panel.always) {
+      const close = document.createElement("button");
+      close.className = "ghost";
+      close.textContent = "✕";
+      close.title = "put this panel away";
+      close.addEventListener("click", (event) => {
+        event.stopPropagation();
+        layout[panel.id].visible = false;
+        saveLayout(); buildBoard(); buildPanelsMenu();
+      });
+      head.append(close);
     }
-    return;
+
+    const body = bodies[panel.id] || (bodies[panel.id] = document.createElement("div"));
+    body.className = "w-body";
+
+    const resize = document.createElement("div");
+    resize.className = "w-resize";
+    resize.title = "drag to resize";
+
+    widget.append(head, body);
+    if (panel.id === "map") widget.append(transport());
+    widget.append(resize);
+    board.append(widget);
+
+    makeDraggable(widget, head);
+    makeResizable(widget, resize, panel.id);
   }
-
-  el("mapEmpty").hidden = false;
-  el("mapWhere").textContent = upcoming && upcoming.circuit
-    ? `${upcoming.circuit} · ${upcoming.session_type}`
-    : "Nothing to show yet";
-  el("mapWhen").textContent = "No replay built — open Replays and build a race.";
-  setStatus("no replay built");
 }
-el("connectBig").addEventListener("click", connect);
-el("browseReplays").addEventListener("click", () => showView("replays"));
 
-/* ============================ replay player ============================= */
+/** Per-panel controls that live in the panel's own header. */
+function headExtras(id) {
+  const wrap = document.createElement("span");
+  if (id === "map") {
+    wrap.innerHTML = '<span class="flag green" id="flagChip" hidden>green</span>';
+  } else if (id === "prediction") {
+    const ask = document.createElement("button");
+    ask.className = "ghost";
+    ask.textContent = "Ask again";
+    ask.addEventListener("click", (event) => {
+      event.stopPropagation();
+      refreshProjection(player.lap || 1, { fresh: true });
+    });
+    wrap.append(ask);
+  } else if (id === "control") {
+    wrap.innerHTML = '<span class="pill" id="rcCount">—</span>';
+  } else if (id === "order") {
+    wrap.innerHTML = '<span class="pill" id="orderLap">—</span>';
+  }
+  return wrap;
+}
+
+function transport() {
+  const bar = document.createElement("div");
+  bar.className = "transport";
+  bar.innerHTML = `
+    <button id="playBtn" class="primary">▶</button>
+    <span class="lapcount" id="lapCount">lap —</span>
+    <div class="scrubwrap">
+      <input type="range" id="scrub" min="0" max="100" value="0" step="1" />
+      <div id="flagStrip" title="flag state through the race"></div>
+    </div>
+    <span class="clock" id="clock">0:00 / 0:00</span>`;
+  bar.querySelector("#playBtn").addEventListener("click", () => setPlaying(!player.playing));
+  bar.querySelector("#scrub").addEventListener("input", (event) => {
+    player.time = Number(event.target.value);
+    renderFrame(player.time);
+  });
+  // Dragging the transport should scrub, not pick the panel up.
+  bar.addEventListener("pointerdown", (event) => event.stopPropagation());
+  return bar;
+}
+
+/* -- drag to rearrange ------------------------------------------------- */
+
+let dragging = null;
+
+function makeDraggable(widget, handle) {
+  handle.addEventListener("pointerdown", (event) => {
+    if (event.target.closest("button")) return;
+    dragging = widget;
+    widget.classList.add("dragging");
+    handle.setPointerCapture(event.pointerId);
+  });
+  handle.addEventListener("pointermove", (event) => {
+    if (dragging !== widget) return;
+    const over = document.elementFromPoint(event.clientX, event.clientY);
+    const target = over && over.closest(".widget");
+    for (const other of document.querySelectorAll(".widget")) {
+      other.classList.toggle("drop-target", other === target && other !== widget);
+    }
+  });
+  handle.addEventListener("pointerup", (event) => {
+    if (dragging !== widget) return;
+    const over = document.elementFromPoint(event.clientX, event.clientY);
+    const target = over && over.closest(".widget");
+    widget.classList.remove("dragging");
+    for (const other of document.querySelectorAll(".widget")) other.classList.remove("drop-target");
+    dragging = null;
+    if (target && target !== widget) {
+      // Swap the two panels' places in the order. Swapping rather than
+      // inserting keeps every other panel where the viewer put it.
+      const a = widget.dataset.panel, b = target.dataset.panel;
+      const carried = layout[a].order;
+      layout[a].order = layout[b].order;
+      layout[b].order = carried;
+      saveLayout(); buildBoard();
+    }
+  });
+}
+
+/* -- drag to resize ---------------------------------------------------- */
+
+function makeResizable(widget, handle, id) {
+  handle.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    handle.setPointerCapture(event.pointerId);
+    const board = el("board");
+    const columns = 12;
+    const gap = 14;
+    const cellWidth = (board.clientWidth - gap * (columns - 1)) / columns;
+    const rowHeight = 26 + gap;
+    const startX = event.clientX, startY = event.clientY;
+    const startCol = layout[id].col, startRow = layout[id].row;
+
+    const move = (moveEvent) => {
+      const col = Math.round(startCol + (moveEvent.clientX - startX) / cellWidth);
+      const row = Math.round(startRow + (moveEvent.clientY - startY) / rowHeight);
+      layout[id].col = Math.min(12, Math.max(3, col));
+      layout[id].row = Math.min(40, Math.max(6, row));
+      widget.style.setProperty("--col", layout[id].col);
+      widget.style.setProperty("--row", layout[id].row);
+      if (id === "map" && player.bundle) fitMap();
+    };
+    const up = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      saveLayout();
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+  });
+}
+
+/* -- the panels menu --------------------------------------------------- */
+
+function buildPanelsMenu() {
+  const menu = el("panelsMenu");
+  menu.textContent = "";
+  for (const panel of PANELS) {
+    if (panel.always) continue;
+    const label = document.createElement("label");
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = layout[panel.id].visible;
+    box.addEventListener("change", () => {
+      layout[panel.id].visible = box.checked;
+      saveLayout(); buildBoard();
+      if (panel.id === "prediction" && box.checked) refreshProjection(player.lap || 1);
+    });
+    label.append(box, document.createTextNode(panel.title));
+    menu.append(label);
+  }
+  const hint = document.createElement("div");
+  hint.style.cssText = "padding:6px 9px;color:var(--dim);font-size:11.5px";
+  hint.textContent = "Drag a panel's header to swap it with another; drag its corner to resize.";
+  menu.append(document.createElement("hr"), hint);
+}
+
+el("panelsBtn").addEventListener("click", (event) => {
+  event.stopPropagation();
+  el("panelsMenu").hidden = !el("panelsMenu").hidden;
+});
+document.addEventListener("click", () => { el("panelsMenu").hidden = true; });
+el("panelsMenu").addEventListener("click", (event) => event.stopPropagation());
+
+el("resetLayout").addEventListener("click", () => {
+  localStorage.removeItem(LAYOUT_KEY);
+  layout = loadLayout();
+  buildBoard(); buildPanelsMenu();
+  if (player.bundle) { fitMap(); renderFrame(player.time); }
+});
+
+/* ======================================================================
+ * The circuit
+ * ================================================================== */
 
 const player = {
-  bundle: null, sessionKey: null, path: [], pitPath: [],
+  bundle: null, sessionKey: null, path: [], pitPath: [], bounds: null,
   playing: false, time: 0, speed: 10, lastFrameAt: 0, lap: 0, selected: null,
+  upcoming: null,
 };
 
-/** Fit the circuit into the viewport, flipping Y: the feed counts up, SVG down. */
+function mapMarkup() {
+  return `
+    <div id="mapWrap">
+      <svg id="map" preserveAspectRatio="xMidYMid meet">
+        <path id="trackGlow" /><path id="trackHalo" />
+        <path id="pitLine" /><path id="pitSurface" />
+        <path id="trackLine" /><path id="trackSurface" />
+        <line id="startLine" />
+        <g id="cars"></g>
+        <g id="carLabels"></g>
+      </svg>
+      <div id="countdown" hidden>
+        <div class="k" id="cdKind">lights out in</div>
+        <div class="t" id="cdTime">—</div>
+        <div class="w" id="cdWhen"></div>
+      </div>
+      <div id="rcOverlay"><span class="at"></span><span class="flag green"></span><span class="msg"></span></div>
+    </div>`;
+}
+
 function fitTransform(bounds, width, height, pad) {
   const spanX = Math.max(bounds.max_x - bounds.min_x, 1);
   const spanY = Math.max(bounds.max_y - bounds.min_y, 1);
@@ -624,45 +663,29 @@ function fitTransform(bounds, width, height, pad) {
 
 function toPathData(points, close) {
   if (!points.length) return "";
-  const parts = points.map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`);
-  return parts.join(" ") + (close ? " Z" : "");
+  return points.map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`).join(" ")
+    + (close ? " Z" : "");
 }
 
-async function openReplay(sessionKey, options = {}) {
-  setStatus("downloading replay…");
-  el("mapEmpty").hidden = true;
-  let bundle;
-  try {
-    bundle = await api(`/replays/${sessionKey}`);
-  } catch (error) {
-    if (!options.quiet) {
-      setStatus("replay not built", "error");
-      el("mapWhere").textContent = "This replay has not been built yet.";
-      el("mapWhen").textContent = "Open Replays and build it — one background job per session.";
-      el("mapEmpty").hidden = false;
-    }
-    return false;
+/** Redraw the circuit into whatever space the panel currently has.
+ *  Called on load, on resize and whenever the map panel is resized. */
+function fitMap() {
+  const wrap = el("mapWrap");
+  if (!wrap || !player.bounds) return;
+  const width = Math.max(wrap.clientWidth, 200);
+  const height = Math.max(wrap.clientHeight, 200);
+  el("map").setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  const project = fitTransform(player.bounds, width, height, 22);
+  player.path = player.rawPath.map(([x, y]) => project(x, y));
+  player.pitPath = player.rawPit.map(([x, y]) => project(x, y));
+
+  for (const id of ["trackGlow", "trackHalo", "trackLine", "trackSurface"]) {
+    el(id).setAttribute("d", toPathData(player.path, true));
   }
-
-  player.bundle = bundle;
-  player.sessionKey = sessionKey;
-  player.playing = false;
-  player.lap = 0;
-  projectionCache.clear();
-
-  const box = el("map").viewBox.baseVal;
-  const project = fitTransform(bundle.track.bounds, box.width, box.height, 18);
-  player.path = bundle.track.path.map(([x, y]) => project(x, y));
-  player.pitPath = bundle.track.pit_path.map(([x, y]) => project(x, y));
-
-  el("trackGlow").setAttribute("d", toPathData(player.path, true));
-  el("trackHalo").setAttribute("d", toPathData(player.path, true));
-  el("trackLine").setAttribute("d", toPathData(player.path, true));
-  el("trackSurface").setAttribute("d", toPathData(player.path, true));
   el("pitLine").setAttribute("d", toPathData(player.pitPath, false));
   el("pitSurface").setAttribute("d", toPathData(player.pitPath, false));
 
-  // The start/finish marker sits across the first vertex of the racing line.
   const [sx, sy] = player.path[0];
   const [nx, ny] = player.path[1] || [sx + 1, sy];
   const angle = Math.atan2(ny - sy, nx - sx) + Math.PI / 2;
@@ -670,69 +693,167 @@ async function openReplay(sessionKey, options = {}) {
   el("startLine").setAttribute("y1", sy + Math.sin(angle) * 8);
   el("startLine").setAttribute("x2", sx - Math.cos(angle) * 8);
   el("startLine").setAttribute("y2", sy - Math.sin(angle) * 8);
+}
 
+function setTrack(track) {
+  player.rawPath = track.path;
+  player.rawPit = track.pit_path || [];
+  player.bounds = track.bounds;
+  fitMap();
+}
+
+window.addEventListener("resize", () => { if (player.bounds) { fitMap(); renderFrame(player.time); } });
+
+/* -- a race that has run ------------------------------------------------ */
+
+async function openReplay(sessionKey, meta) {
+  setStatus("downloading replay…");
+  let bundle;
+  try {
+    bundle = await api(`/replays/${sessionKey}`);
+  } catch (error) {
+    setStatus("replay not built", "error");
+    return false;
+  }
+
+  stopCountdown();
+  player.bundle = bundle;
+  player.sessionKey = sessionKey;
+  player.playing = false;
+  player.lap = 0;
+  player.upcoming = null;
+  projectionCache.clear();
+
+  setTrack(bundle.track);
   buildCarLayer(bundle.drivers);
 
-  // Open where the race does. The feed starts well before the lights, with the
-  // cars stacked on the grid and no timing, which is a poor first impression.
+  // Open where the race does: the feed starts well before the lights, with the
+  // cars stacked on the grid and no timing to show.
   const green = bundle.frames.find(
     (frame) => frame.lap >= 1 && Object.keys(frame.cars).length > bundle.drivers.length / 2
   );
   player.time = green ? green.t : 0;
 
   const session = bundle.session;
-  el("mapWhere").textContent = `${session.circuit || session.location} · ${session.name}`;
-  el("mapWhen").textContent =
-    `${when(session.date_start)} · ${bundle.total_laps} laps · ${bundle.drivers.length} cars`;
+  setTitle("map", `${session.circuit || session.location} · ${session.name}`);
   el("scrub").max = String(Math.round(bundle.duration_s));
   el("flagStrip").style.background = flagGradient(bundle);
-  setStatus("replay ready", "live");
+  el("flagChip").hidden = false;
+  el("countdown").hidden = true;
+  setStatus(`${session.circuit} ready`, "live");
   renderFrame(player.time);
-  showView("dash");
+  refreshProjection(1);
   return true;
 }
 
-/** The flag state across a whole race, as a css gradient.
- *
- *  Hard stops rather than blends: a race is green or it is not, and a fade
- *  would invent a state that never existed. Green is the quiet background
- *  colour so the interruptions are what the eye lands on. */
-/* Weighted by how much a state actually changes the race. A local yellow lasts
-   a corner and there are dozens of them; drawn as loudly as a safety car they
-   turn the bar into stripes and it stops being readable at a glance. So yellow
-   sits just above the background, and the neutralisations that reshape a race
-   are the ones that catch the eye. */
-const FLAG_COLOURS = {
-  green: "#23272e",
-  yellow: "#3f3722",
-  vsc: "#8a6a15",
-  safety_car: "#d69a20",
-  red_flag: "#c0392b",
-};
+/* -- a race that has not ------------------------------------------------ */
 
-function flagGradient(bundle) {
-  const duration = bundle.duration_s || 1;
-  const stops = [];
-  let previous = null;
-  for (const frame of bundle.frames) {
-    const flag = frame.flag || "green";
-    if (flag === previous) continue;
-    const at = ((frame.t / duration) * 100).toFixed(3);
-    const colour = FLAG_COLOURS[flag] || FLAG_COLOURS.green;
-    if (stops.length) stops.push(`${stops[stops.length - 1].split(" ")[0]} ${at}%`);
-    stops.push(`${colour} ${at}%`);
-    previous = flag;
-  }
-  if (!stops.length) return FLAG_COLOURS.green;
-  return `linear-gradient(90deg, ${stops.join(", ")}, ${stops[stops.length - 1].split(" ")[0]} 100%)`;
+let countdownTimer = null;
+
+function stopCountdown() {
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  el("countdown").hidden = true;
 }
 
-const carNodes = new Map();
+/** Show an upcoming session: its circuit if any race there has ever been
+ *  built, the time to lights out over the middle of it, and the order the
+ *  grid is expected to line up in. */
+async function openUpcoming(round) {
+  stopCountdown();
+  player.bundle = null;
+  player.upcoming = round;
+  player.playing = false;
+  el("flagChip").hidden = true;
+  el("rcOverlay").classList.remove("on");
+  buildCarLayer([]);
+  setTitle("map", `${round.circuit} · ${round.name}`);
+  setStatus("not yet run");
 
-/** How much room a surname needs, in SVG units, before it collides. */
+  let laid = false;
+  try {
+    const layoutData = await api(`/layouts/${encodeURIComponent(round.circuit)}`);
+    setTrack(layoutData.track);
+    laid = true;
+  } catch (_) {
+    for (const id of ["trackGlow", "trackHalo", "trackLine", "trackSurface", "pitLine", "pitSurface"]) {
+      el(id).setAttribute("d", "");
+    }
+    el("startLine").setAttribute("x1", 0); el("startLine").setAttribute("x2", 0);
+  }
+
+  el("cdKind").textContent = laid ? "lights out in" : "no layout yet · lights out in";
+  el("cdWhen").textContent = when(round.date_start);
+  el("countdown").hidden = false;
+  tickCountdown(round.date_start);
+  countdownTimer = setInterval(() => tickCountdown(round.date_start), 1000);
+
+  await showProvisionalGrid(round);
+  renderRaceControl(0);
+  renderProjection(null);
+}
+
+function tickCountdown(iso) {
+  const remaining = new Date(iso).getTime() - Date.now();
+  if (remaining <= 0) { el("cdTime").textContent = "under way"; return; }
+  const seconds = Math.floor(remaining / 1000);
+  const days = Math.floor(seconds / 86400);
+  const hours = String(Math.floor((seconds % 86400) / 3600)).padStart(2, "0");
+  const minutes = String(Math.floor((seconds % 3600) / 60)).padStart(2, "0");
+  const secs = String(seconds % 60).padStart(2, "0");
+  el("cdTime").textContent = (days ? `${days}d ` : "") + `${hours}:${minutes}:${secs}`;
+}
+
+/** The grid as it stands before a session that has not run.
+ *
+ *  Nobody knows the real starting order until qualifying happens, so this is
+ *  the last completed race's finishing order, said plainly rather than dressed
+ *  up as a prediction. */
+async function showProvisionalGrid(round) {
+  el("orderLap") && (el("orderLap").textContent = "provisional");
+  const container = bodies.order;
+  container.innerHTML = '<div class="empty">Looking up the last result…</div>';
+
+  const previous = (catalogue || [])
+    .filter((entry) => entry.cached && new Date(entry.date_start) < new Date(round.date_start))
+    .sort((a, b) => new Date(b.date_start) - new Date(a.date_start))[0];
+  if (!previous) {
+    container.innerHTML = '<div class="empty">No finished race is built, so there is no order to show yet.</div>';
+    return;
+  }
+  try {
+    const bundle = await api(`/replays/${previous.session_key}`);
+    container.textContent = "";
+    const note = document.createElement("div");
+    note.className = "side-foot";
+    note.style.borderTop = "none";
+    note.textContent = `Provisional — the order from ${bundle.session.circuit}, `
+      + `${new Date(bundle.session.date_start).toLocaleDateString()}. The grid is set in qualifying.`;
+    container.append(note);
+    for (const row of bundle.results) {
+      const node = document.createElement("div");
+      node.className = "order-row" + (row.position === 1 ? " leader" : "");
+      node.innerHTML = `
+        <span class="pos">${row.position}</span>
+        <span class="bar" style="background:${row.colour || "#666"}"></span>
+        <span class="who"><b>${row.code || row.number}</b><small>${row.team || ""}</small></span>
+        <span class="gap"><span class="t">${row.laps ?? ""}</span></span>`;
+      container.append(node);
+    }
+  } catch (_) {
+    container.innerHTML = '<div class="empty">Could not read the last result.</div>';
+  }
+}
+
+function setTitle(panelId, text) {
+  const widget = document.querySelector(`.widget[data-panel="${panelId}"] h2`);
+  if (widget) widget.textContent = text;
+}
+
+/* -- cars --------------------------------------------------------------- */
+
+const carNodes = new Map();
 const NAME_CLEARANCE = 54;
 
-/** "Lando NORRIS" -> "NORRIS". The feed capitalises the family name. */
 function surnameOf(driver) {
   const parts = String(driver.name || "").trim().split(/\s+/);
   return (parts[parts.length - 1] || driver.code || "").toUpperCase();
@@ -751,7 +872,6 @@ function buildCarLayer(drivers) {
     const dot = document.createElementNS(svgNS, "circle");
     dot.setAttribute("class", "car-dot");
     dot.setAttribute("fill", driver.colour);
-    // The glow is the team colour, so it has to be inline rather than in CSS.
     dot.style.filter = `drop-shadow(0 0 4px ${driver.colour}) drop-shadow(0 0 9px ${driver.colour})`;
 
     const label = document.createElementNS(svgNS, "text");
@@ -774,7 +894,6 @@ function buildCarLayer(drivers) {
     const labelGroup = document.createElementNS(svgNS, "g");
     labelGroup.append(name, tag);
     labels.append(labelGroup);
-
     carNodes.set(String(driver.number), { group, labelGroup, dot, label, name, tag });
   }
 }
@@ -789,7 +908,6 @@ function selectCar(number) {
   if (player.bundle) renderFrame(player.time);
 }
 
-/** Position along a path, as a point. Fractional and wrapping. */
 function pointAt(path, progress) {
   if (!path.length) return [0, 0];
   const wrapped = ((progress % path.length) + path.length) % path.length;
@@ -800,7 +918,6 @@ function pointAt(path, progress) {
   return [x0 + (x1 - x0) * alpha, y0 + (y1 - y0) * alpha];
 }
 
-/** Blend two progress values the short way round the lap. */
 function blendProgress(from, to, alpha, loop) {
   let delta = to - from;
   if (delta > loop / 2) delta -= loop;
@@ -837,9 +954,7 @@ function renderFrame(time) {
       [x, y] = pointAt(player.pitPath.length ? player.pitPath : player.path, here[1]);
     } else {
       const there = next ? next.cars[number] : undefined;
-      const progress = (typeof there === "number")
-        ? blendProgress(here, there, alpha, loop)
-        : here;
+      const progress = (typeof there === "number") ? blendProgress(here, there, alpha, loop) : here;
       [x, y] = pointAt(player.path, progress);
     }
     node.group.classList.toggle("pit", inPit);
@@ -855,24 +970,19 @@ function renderFrame(time) {
   el("clock").textContent = `${clock(time)} / ${clock(bundle.duration_s)}`;
   el("scrub").value = String(Math.round(time));
   const flag = frame.flag || "green";
-  el("flagChip").className = `flag ${flag}`;
-  el("flagChip").textContent = flag.replace("_", " ");
+  const chip = el("flagChip");
+  chip.className = `flag ${flag}`;
+  chip.textContent = flag.replace("_", " ");
   el("lapCount").textContent = `lap ${frame.lap || 0} / ${bundle.total_laps}`;
 
   renderRaceControl(time);
   if (frame.lap !== player.lap) {
     player.lap = frame.lap;
     renderOrder(frame.lap);
-    if (!el("sidePrediction").hidden) refreshProjection(frame.lap);
+    if (layout.prediction.visible) refreshProjection(frame.lap);
   }
 }
 
-/** Surnames are only legible while they are not on top of each other.
- *
- *  Cars in a train print one name over another, which is worse than printing
- *  none, so a name is dropped when a closer car has already claimed the space
- *  -- the leading car of a group keeps its label, and a selected car always
- *  keeps its own. */
 function hideCrowdedNames(placed) {
   for (let index = 0; index < placed.length; index += 1) {
     const [node, x, y] = placed[index];
@@ -881,28 +991,27 @@ function hideCrowdedNames(placed) {
       const [, ox, oy] = placed[other];
       crowded = Math.hypot(x - ox, y - oy) < NAME_CLEARANCE;
     }
-    node.name.setAttribute(
-      "visibility",
-      crowded && !node.labelGroup.classList.contains("selected") ? "hidden" : "visible"
-    );
+    node.name.setAttribute("visibility",
+      crowded && !node.labelGroup.classList.contains("selected") ? "hidden" : "visible");
   }
 }
 
+/* -- the running order -------------------------------------------------- */
+
 function renderOrder(lap) {
-  // Before the first lap is complete there is no timing to show, so the grid
-  // as it stands on lap one stands in for it.
+  const container = bodies.order;
+  if (!player.bundle) return;
   const laps = player.bundle.laps || {};
   const rows = laps[String(lap)] || laps["1"] || [];
   const drivers = new Map(player.bundle.drivers.map((d) => [d.number, d]));
-  const container = el("order");
+  if (el("orderLap")) el("orderLap").textContent = lap ? `lap ${lap}` : "—";
   if (!rows.length) { container.innerHTML = '<div class="empty">No timing on this lap.</div>'; return; }
 
   container.textContent = "";
   for (const row of rows) {
     const driver = drivers.get(row.number) || {};
-    const node = document.createElement("div");
-    node.className = "order-row";
     const leading = row.position === 1;
+    const node = document.createElement("div");
     node.className = "order-row" + (leading ? " leader" : "");
     node.innerHTML = `
       <span class="pos">${row.position ?? "–"}</span>
@@ -918,31 +1027,47 @@ function renderOrder(lap) {
   }
 }
 
-/** Race control up to the playhead: what has been announced so far, not what
- *  is coming. Messages timestamped outside the session window are dropped --
- *  the feed carries some from before the cars were released. */
+/* -- race control ------------------------------------------------------- */
+
 function renderRaceControl(upTo) {
-  const container = el("rcLog");
+  const container = bodies.control;
+  if (!player.bundle) {
+    container.innerHTML = '<div class="empty">Nothing announced — this session has not run.</div>';
+    if (el("rcCount")) el("rcCount").textContent = "—";
+    return;
+  }
   const all = (player.bundle.race_control || []).filter(
     (event) => event.t >= 0 && event.t <= player.bundle.duration_s
   );
   const events = all.filter((event) => event.t <= upTo);
-  el("rcCount").textContent = `${events.length} of ${all.length} messages`;
+  if (el("rcCount")) el("rcCount").textContent = `${events.length} of ${all.length}`;
+
+  const latest = events[events.length - 1];
+  const overlay = el("rcOverlay");
+  if (latest) {
+    overlay.querySelector(".at").textContent = clock(latest.t);
+    const flag = overlay.querySelector(".flag");
+    flag.className = `flag ${latest.state || "green"}`;
+    flag.textContent = (latest.state || "note").replace("_", " ");
+    overlay.querySelector(".msg").textContent = latest.message || "";
+    overlay.classList.add("on");
+  } else {
+    overlay.classList.remove("on");
+  }
+
   if (!events.length) { container.innerHTML = '<div class="empty">Nothing announced yet.</div>'; return; }
   container.textContent = "";
-  for (const event of events.slice(-60).reverse()) {
+  for (const event of events.slice(-80).reverse()) {
     const row = document.createElement("div");
     row.className = "rc-row";
     row.innerHTML = `<span class="at">${clock(event.t)}</span>
-      <span>${event.state
-        ? `<span class="flag ${event.state}">${event.state.replace("_", " ")}</span>`
-        : ""}</span>
+      <span>${event.state ? `<span class="flag ${event.state}">${event.state.replace("_", " ")}</span>` : ""}</span>
       <span class="msg" title="${(event.message || "").replace(/"/g, "&quot;")}">${event.message || ""}</span>`;
     container.append(row);
   }
 }
 
-/* transport ------------------------------------------------------------- */
+/* -- transport ---------------------------------------------------------- */
 
 function tick(now) {
   if (player.playing && player.bundle) {
@@ -958,172 +1083,65 @@ requestAnimationFrame(tick);
 
 function setPlaying(playing) {
   player.playing = playing && !!player.bundle;
-  el("playBtn").textContent = player.playing ? "❚❚" : "▶";
+  const button = el("playBtn");
+  if (button) button.textContent = player.playing ? "❚❚" : "▶";
 }
-el("playBtn").addEventListener("click", () => setPlaying(!player.playing));
 el("speed").addEventListener("change", (event) => { player.speed = Number(event.target.value); });
-el("scrub").addEventListener("input", (event) => {
-  player.time = Number(event.target.value);
-  renderFrame(player.time);
-});
 
-/* ========================== replay library ============================== */
+const FLAG_COLOURS = {
+  green: "#23272e", yellow: "#3f3722", vsc: "#8a6a15",
+  safety_car: "#d69a20", red_flag: "#c0392b",
+};
 
-let replayCatalogue = null;
-
-async function loadCatalogue() {
-  const grid = el("replayGrid");
-  grid.innerHTML = '<div class="empty">Loading the season…</div>';
-  try {
-    replayCatalogue = await api("/replays");
-  } catch (error) {
-    grid.innerHTML = `<div class="empty">Could not reach OpenF1: ${error.message}</div>`;
-    return;
+/** The flag state across a whole race, as a css gradient. Hard stops: a race
+ *  is green or it is not, and a fade would invent a state that never was. */
+function flagGradient(bundle) {
+  const duration = bundle.duration_s || 1;
+  const stops = [];
+  let previous = null;
+  for (const frame of bundle.frames) {
+    const flag = frame.flag || "green";
+    if (flag === previous) continue;
+    const at = ((frame.t / duration) * 100).toFixed(3);
+    const colour = FLAG_COLOURS[flag] || FLAG_COLOURS.green;
+    if (stops.length) stops.push(`${stops[stops.length - 1].split(" ")[0]} ${at}%`);
+    stops.push(`${colour} ${at}%`);
+    previous = flag;
   }
-  renderCatalogue();
+  if (!stops.length) return FLAG_COLOURS.green;
+  return `linear-gradient(90deg, ${stops.join(", ")}, ${stops[stops.length - 1].split(" ")[0]} 100%)`;
 }
 
-/** Filter the library on anything printed on a card: circuit, country, the
- *  kind of session, or the month it ran in. Every word has to match, so
- *  "monza sprint" narrows rather than widens. */
-function matchesSearch(round, query) {
-  if (!query) return true;
-  const haystack = [
-    round.circuit, round.country, round.location, round.name,
-    round.date_start
-      ? new Date(round.date_start).toLocaleDateString(undefined, { month: "long", year: "numeric" })
-      : "",
-  ].join(" ").toLowerCase();
-  return query.toLowerCase().split(/\s+/).every((word) => haystack.includes(word));
-}
-
-function renderCatalogue() {
-  const query = el("replaySearch").value.trim();
-  // Built races first. The library is for watching, and only some of it can be
-  // watched right now; the rest is an offer to wait several minutes.
-  const rounds = (replayCatalogue || [])
-    .filter((round) => matchesSearch(round, query))
-    .sort((a, b) => (b.cached === true) - (a.cached === true));
-  const built = rounds.filter((round) => round.cached).length;
-  el("replayCount").textContent =
-    `${rounds.length} race${rounds.length === 1 ? "" : "s"} · ${built} ready`;
-
-  const grid = el("replayGrid");
-  grid.textContent = "";
-  if (!rounds.length) {
-    grid.innerHTML = '<div class="empty">Nothing matches that search.</div>';
-    return;
-  }
-  for (const round of rounds) grid.append(replayCard(round));
-}
-el("replaySearch").addEventListener("input", renderCatalogue);
-el("refreshReplays").addEventListener("click", () => { replayCatalogue = null; loadCatalogue(); });
-
-function replayCard(round) {
-  const card = document.createElement("div");
-  card.className = "card replay-card";
-  const date = new Date(round.date_start).toLocaleDateString(undefined,
-    { day: "numeric", month: "short", year: "numeric" });
-  card.innerHTML = `
-    <div class="top">
-      <div><b>${round.circuit || round.location}</b><div class="meta">${round.country} · ${round.name}</div></div>
-      <span class="badge ${round.cached ? "ready" : ""}">${round.cached ? "ready" : "not built"}</span>
-    </div>
-    <div class="meta">${date}${round.size_bytes ? ` · ${(round.size_bytes / 1e6).toFixed(1)} MB` : ""}</div>
-    <div class="actions"></div>`;
-
-  const actions = card.querySelector(".actions");
-  const open = document.createElement("button");
-  // Only what can be watched now gets the loud button. Everything else is an
-  // offer to wait several minutes, and should not compete with it.
-  open.className = round.cached ? "primary" : "";
-  open.textContent = round.cached ? "Watch" : "Build & watch";
-  open.addEventListener("click", () => (round.cached ? openReplay(round.session_key)
-                                                    : buildReplay(round, card, open)));
-  actions.append(open);
-  return card;
-}
-
-async function buildReplay(round, card, button) {
-  button.disabled = true;
-  const status = document.createElement("span");
-  status.className = "meta";
-  status.textContent = "queued…";
-  card.querySelector(".actions").append(status);
-
-  try {
-    const job = await api(`/replays/${round.session_key}/build`, { method: "POST" });
-    // One request per car against a rate-limited API: minutes, not seconds.
-    const finished = await pollJob(job.job_id, (record) => {
-      const stage = record.stages[record.stages.length - 1] || "working";
-      status.textContent = `${stage}…`;
-    });
-    if (finished.status !== "succeeded") throw new Error(finished.error || "build failed");
-    // The build is stored centrally, so it is everyone's replay from now on.
-    status.textContent = "ready for everyone";
-    round.cached = true;
-    card.querySelector(".badge").className = "badge ready";
-    card.querySelector(".badge").textContent = "ready";
-    await openReplay(round.session_key);
-  } catch (error) {
-    status.textContent = error.message;
-  } finally {
-    button.disabled = false;
-    button.textContent = "Watch";
-  }
-}
-
-async function pollJob(jobId, onProgress) {
-  for (;;) {
-    const record = await api(`/jobs/${jobId}`);
-    onProgress(record);
-    if (record.status === "succeeded" || record.status === "failed") return record;
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-  }
-}
-
-/* ========================= prediction panel ============================= */
+/* ======================================================================
+ * Prediction
+ * ================================================================== */
 
 const projectionCache = new Map();
 let accuracyCache = null;
 
 async function refreshProjection(lap, options = {}) {
-  if (!player.bundle || !lap) return;
+  if (!layout.prediction.visible) return;
+  if (!player.bundle || !lap) return renderProjection(null);
   if (options.fresh) projectionCache.delete(lap);
   if (projectionCache.has(lap)) return renderProjection(projectionCache.get(lap));
 
-  el("thinking").innerHTML = '<h3>What the model is thinking</h3>';
-  el("thinking").append(note("asking the model…"));
+  bodies.prediction.innerHTML = '<div class="empty">Asking the model…</div>';
   try {
     const projection = await api(
-      `/replays/${player.sessionKey}/projection?lap=${lap}${options.fresh ? "&fresh=true" : ""}`
-    );
+      `/replays/${player.sessionKey}/projection?lap=${lap}${options.fresh ? "&fresh=true" : ""}`);
     projectionCache.set(lap, projection);
     if (player.lap === lap || !player.playing) renderProjection(projection);
   } catch (error) {
-    el("panelBody").innerHTML = `<div class="empty">${error.message}</div>`;
+    bodies.prediction.innerHTML = `<div class="empty">${error.message}</div>`;
   }
 }
 
-function note(text) {
-  const node = document.createElement("div");
-  node.className = "empty";
-  node.style.padding = "8px 0";
-  node.textContent = text;
-  return node;
-}
-
-/** The model's read of this lap, in sentences.
- *
- *  A table of twenty rows answers "show me everything". This answers "what do
- *  you think?" -- who wins, who is about to move and why, and where the
- *  trained model and the arithmetic disagree, which is the interesting part. */
 function summarise(projection) {
   const entries = projection.entries;
   const lines = [];
   const winner = entries[0];
-  lines.push(`<b>${winner.name || winner.code}</b> takes it, with
-    ${projection.laps_remaining} lap${projection.laps_remaining === 1 ? "" : "s"} left to run.`);
+  lines.push(`<b>${winner.name || winner.code}</b> takes it, with ${projection.laps_remaining}
+    lap${projection.laps_remaining === 1 ? "" : "s"} left to run.`);
 
   const movers = entries
     .filter((e) => e.position_change != null && Math.abs(e.position_change) >= 2)
@@ -1131,10 +1149,9 @@ function summarise(projection) {
     .slice(0, 2);
   for (const mover of movers) {
     const up = mover.position_change > 0;
-    lines.push(`<b>${mover.code}</b> ${up ? "gains" : "loses"}
-      ${Math.abs(mover.position_change)} place${Math.abs(mover.position_change) === 1 ? "" : "s"}
-      from P${mover.position} — ${up ? "quicker than the cars around it"
-                                    : "it still owes the pit lane"}.`);
+    lines.push(`<b>${mover.code}</b> ${up ? "gains" : "loses"} ${Math.abs(mover.position_change)}
+      place${Math.abs(mover.position_change) === 1 ? "" : "s"} from P${mover.position} —
+      ${up ? "quicker than the cars around it" : "it still owes the pit lane"}.`);
   }
 
   const owing = entries.filter((e) => e.stops_owed > 0).length;
@@ -1143,115 +1160,73 @@ function summarise(projection) {
        ${projection.pit_loss_s.toFixed(0)}s each here.`
     : "Everyone is on the tyres they intend to finish on.");
 
-  if (projection.overtaking_difficulty != null && projection.overtaking_difficulty > 0.6) {
-    lines.push("Passing is hard here, so a pace advantage counts for less than it looks.");
-  }
-
   const model = projection.model || {};
   if (model.available) {
     const disagreements = entries.filter(
-      (e) => e.model_position && Math.abs(e.model_position - e.projected_position) >= 4
-    ).length;
+      (e) => e.model_position && Math.abs(e.model_position - e.projected_position) >= 4).length;
     lines.push(disagreements
-      ? `The trained model disagrees sharply on ${disagreements}
-         car${disagreements === 1 ? "" : "s"} — worth watching which way they go.`
+      ? `The trained model disagrees sharply on ${disagreements} car${disagreements === 1 ? "" : "s"}.`
       : "The trained model broadly agrees with this order.");
-  } else {
-    lines.push(`No trained model is running on this session — ${model.reason || "unavailable"}.`);
   }
-
   return `<h3>What the model is thinking</h3><ul>${lines.map((l) => `<li>${l}</li>`).join("")}</ul>`;
 }
 
 function renderProjection(projection) {
-  const body = el("panelBody");
-  if (!projection.entries.length) {
-    el("thinking").innerHTML = "<h3>What the model is thinking</h3>";
-    el("thinking").append(note("No timing data on this lap."));
-    body.textContent = "";
+  const body = bodies.prediction;
+  if (!projection || !projection.entries || !projection.entries.length) {
+    body.innerHTML = '<div class="empty">'
+      + (player.upcoming ? "Nothing to project until the cars run." : "No timing data on this lap.")
+      + "</div>";
     return;
   }
-  el("thinking").innerHTML = summarise(projection);
-
   const modelLive = projection.model && projection.model.available;
   const rows = projection.entries.map((entry) => {
     const change = entry.position_change;
     const arrow = change > 0 ? `<span class="up">▲${change}</span>`
-                : change < 0 ? `<span class="down">▼${-change}</span>`
-                : '<span style="color:var(--muted)">–</span>';
+      : change < 0 ? `<span class="down">▼${-change}</span>`
+      : '<span style="color:var(--dim)">–</span>';
     return `<tr>
       <td class="num">${entry.projected_position}</td>
-      <td>
-        <span style="display:inline-block;width:4px;height:14px;border-radius:2px;background:${entry.colour};vertical-align:-2px"></span>
-        <b>${entry.code}</b>
-      </td>
+      <td><span style="display:inline-block;width:4px;height:14px;border-radius:2px;background:${entry.colour};vertical-align:-2px"></span>
+        <b>${entry.code}</b></td>
       <td class="num">${entry.position ?? "–"} ${arrow}</td>
       <td>${entry.compound ? `<span class="tyre ${entry.compound}">${entry.compound[0]}${entry.tyre_age ?? ""}</span>` : "–"}</td>
       <td class="num">${entry.stops}${entry.stops_owed ? ` +${entry.stops_owed}` : ""}</td>
-      <td class="num">${entry.pace_delta_s != null ? (entry.pace_delta_s > 0 ? "+" : "") + entry.pace_delta_s.toFixed(2) : "–"}</td>
       ${modelLive ? `<td class="num">${entry.model_position ?? "–"}</td>` : ""}
     </tr>`;
   }).join("");
 
-  body.innerHTML = `<table>
-    <thead><tr>
+  body.innerHTML = `<div class="thinking">${summarise(projection)}</div>
+    <table><thead><tr>
       <th class="num">Proj</th><th>Driver</th><th class="num">Now</th><th>Tyre</th>
-      <th class="num">Stops</th><th class="num">Pace Δ</th>
-      ${modelLive ? '<th class="num">Model</th>' : ""}
-    </tr></thead><tbody>${rows}</tbody></table>`;
-
-  const model = projection.model || {};
-  el("panelNote").innerHTML = `
-    <div class="formula">order = track position, nudged by
-      (gap − pace × ${projection.laps_remaining} laps + ${projection.pit_loss_s.toFixed(0)}s × stops owed)</div>
-    <div style="margin-top:6px">${model.available
-      ? `Model column: <b>${model.model_type}</b> v${model.version} (${model.regs_regime} regime).`
-      : `Trained model not shown — ${model.reason || "unavailable"}.`}</div>`;
-  showAccuracy();
+      <th class="num">Stops</th>${modelLive ? '<th class="num">Model</th>' : ""}
+    </tr></thead><tbody>${rows}</tbody></table>
+    <div class="side-foot" id="panelFoot"></div>`;
+  showAccuracy(projection);
 }
 
-async function showCoverage() {
-  if (!player.sessionKey) return;
-  try {
-    const coverage = await api(`/replays/${player.sessionKey}/predictions`);
-    const run = (coverage.runs || []).find((r) => r.model_version === coverage.active_model_version);
-    el("panelCoverage").textContent = run
-      ? `${run.laps} laps evaluated under model ${run.model_version}`
-      : "not evaluated yet";
-  } catch (_) { /* coverage is a nicety, not a requirement */ }
-  showAccuracy();
-}
-
-/** How wrong this projection has been, on races that have already finished.
- *
- *  A projected finishing order is unfalsifiable while a race runs, so the
- *  panel quotes its own track record instead: the typical error at this stage
- *  of a race, next to the error of simply reading the running order. If the
- *  projection cannot beat that, the number above deserves less trust. */
-async function showAccuracy() {
-  const node = el("panelAccuracy");
-  try {
-    if (!accuracyCache) accuracyCache = await api("/predictions/accuracy");
-  } catch (_) { node.textContent = ""; return; }
-
+async function showAccuracy(projection) {
+  const node = el("panelFoot");
+  if (!node) return;
+  try { if (!accuracyCache) accuracyCache = await api("/predictions/accuracy"); }
+  catch (_) { return; }
   if (!accuracyCache.scored_laps) {
-    node.innerHTML = "<b>Not yet scored.</b> Evaluate a finished race to measure this " +
-      "projection against what actually happened.";
+    node.innerHTML = "<b>Not yet scored.</b> Evaluate a finished race to measure this projection.";
     return;
   }
   const stage = stageOf(player.lap, player.bundle ? player.bundle.total_laps : 0);
   const row = (accuracyCache.by_stage || []).find((s) => s.stage === stage) || accuracyCache.overall;
   const places = (value) => (value == null ? "–" : `${value.toFixed(1)} places`);
   const verdict = row.best === "projection" ? "the projection is ahead"
-    : row.best === "model" ? "the model is ahead"
-    : "reading the running order is still better";
-
-  node.innerHTML = `<b>Measured on ${accuracyCache.scored_laps} scored laps</b> of finished races —
-    typical error in the ${stage || "race"}: projection ${places(row.projection)},
-    model ${places(row.model)}, track position ${places(row.track_position)}. ${verdict}.`;
+    : row.best === "model" ? "the model is ahead" : "reading the running order is still better";
+  const model = projection.model || {};
+  node.innerHTML = `<div class="formula">order = track position, nudged by pace, tyres and stops owed</div>
+    <div style="margin-top:6px">Measured on ${accuracyCache.scored_laps} scored laps —
+      typical error in the ${stage || "race"}: projection ${places(row.projection)},
+      model ${places(row.model)}, track position ${places(row.track_position)}. ${verdict}.</div>
+    ${model.available ? `<div style="margin-top:6px">Model column: <b>${model.model_type}</b> v${model.version}.</div>` : ""}`;
 }
 
-/** Which quarter of a race a lap falls in — the server groups scores the same way. */
 function stageOf(lap, totalLaps) {
   if (!lap || !totalLaps) return null;
   const fraction = lap / totalLaps;
@@ -1261,136 +1236,328 @@ function stageOf(lap, totalLaps) {
   return "final quarter";
 }
 
-/* ============================== live view =============================== */
+/* ======================================================================
+ * Search: one list of races, past and future
+ * ================================================================== */
+
+let catalogue = null;
+let upcoming = [];
+let highlighted = -1;
+
+async function loadRaces() {
+  const [built, now] = await Promise.all([
+    api("/replays").catch(() => []),
+    api("/now").catch(() => null),
+  ]);
+  catalogue = built;
+  if (now) {
+    el("regime").textContent = `regime ${now.regs_regime} · season ${now.season}`;
+  }
+
+  // Sessions still to come are read from the calendar, not from the replay
+  // catalogue, which only knows about sessions that have started.
+  try {
+    const sessions = await api("/sessions?year=" + (now ? now.season : new Date().getFullYear()));
+    const moment = Date.now();
+    upcoming = sessions
+      .filter((s) => s.start_time && new Date(s.start_time).getTime() > moment)
+      .map((s) => ({
+        upcoming: true,
+        session_id: s.id,
+        circuit: s.circuit_id,
+        name: s.session_type,
+        country: "",
+        date_start: s.start_time,
+        cached: false,
+      }))
+      .sort((a, b) => new Date(a.date_start) - new Date(b.date_start));
+  } catch (_) { upcoming = []; }
+
+  el("seasonPill").textContent =
+    `${(catalogue || []).filter((r) => r.cached).length} ready · ${upcoming.length} to come`;
+  return { built, now };
+}
+
+function everyRace() {
+  return [...upcoming, ...(catalogue || [])];
+}
+
+function matches(round, query) {
+  if (!query) return true;
+  const haystack = [round.circuit, round.country, round.location, round.name,
+    round.date_start ? new Date(round.date_start).toLocaleDateString(undefined,
+      { month: "long", year: "numeric" }) : ""].join(" ").toLowerCase();
+  return query.toLowerCase().split(/\s+/).every((word) => haystack.includes(word));
+}
+
+function renderResults() {
+  const query = el("search").value.trim();
+  const box = el("results");
+  const rounds = everyRace().filter((round) => matches(round, query)).slice(0, 40);
+  highlighted = -1;
+  if (!rounds.length) {
+    box.innerHTML = '<div class="empty">Nothing matches that.</div>';
+    box.hidden = false;
+    return;
+  }
+  box.textContent = "";
+  for (const round of rounds) {
+    const row = document.createElement("div");
+    row.className = "result";
+    const date = new Date(round.date_start).toLocaleDateString(undefined,
+      { day: "numeric", month: "short", year: "numeric" });
+    const badge = round.upcoming ? '<span class="badge soon">to come</span>'
+      : round.cached ? '<span class="badge ready">ready</span>'
+      : '<span class="badge">not built</span>';
+    row.innerHTML = `<span><b>${round.circuit}</b><small>${round.name}${round.country ? " · " + round.country : ""}</small></span>
+      <span class="badge" style="border:none;background:none">${date}</span>${badge}`;
+    row.addEventListener("click", () => choose(round));
+    box.append(row);
+  }
+  box.hidden = false;
+}
+
+async function choose(round) {
+  el("results").hidden = true;
+  el("search").value = "";
+  if (round.upcoming) return openUpcoming(round);
+  if (round.cached) return openReplay(round.session_key, round);
+  return buildThenOpen(round);
+}
+
+async function buildThenOpen(round) {
+  setStatus(`building ${round.circuit}…`);
+  try {
+    const job = await api(`/replays/${round.session_key}/build`, { method: "POST" });
+    for (;;) {
+      const record = await api(`/jobs/${job.job_id}`);
+      setStatus(`${record.stages[record.stages.length - 1] || "working"}…`);
+      if (record.status === "succeeded") break;
+      if (record.status === "failed") throw new Error(record.error || "build failed");
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    round.cached = true;
+    await openReplay(round.session_key, round);
+    loadRaces();
+  } catch (error) {
+    setStatus(error.message, "error");
+  }
+}
+
+el("search").addEventListener("input", renderResults);
+el("search").addEventListener("focus", renderResults);
+el("search").addEventListener("keydown", (event) => {
+  const rows = [...el("results").querySelectorAll(".result")];
+  if (event.key === "Escape") { el("results").hidden = true; return; }
+  if (!rows.length) return;
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    highlighted = (highlighted + (event.key === "ArrowDown" ? 1 : rows.length - 1)) % rows.length;
+    rows.forEach((row, index) => row.classList.toggle("active", index === highlighted));
+    rows[highlighted].scrollIntoView({ block: "nearest" });
+  } else if (event.key === "Enter") {
+    (rows[highlighted] || rows[0]).click();
+  }
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest(".finder")) el("results").hidden = true;
+});
+
+/* ======================================================================
+ * The live session, when there is one
+ * ================================================================== */
 
 let socket = null;
 
-async function loadSessions() {
-  try {
-    const sessions = await api("/sessions");
-    const select = el("sessionSelect");
-    select.textContent = "";
-    const blank = document.createElement("option");
-    blank.value = ""; blank.textContent = "select a session…";
-    select.append(blank);
-    for (const session of sessions) {
-      const option = document.createElement("option");
-      option.value = String(session.id);
-      option.dataset.type = session.session_type;
-      const date = session.start_time ? new Date(session.start_time).toLocaleDateString() : "tbc";
-      option.textContent = `${session.circuit_id} · ${session.session_type} · ${date}`;
-      select.append(option);
-    }
-  } catch (error) {
-    setStatus(`api unreachable: ${error.message}`, "error");
-  }
+function logLine(message) {
+  const body = bodies.log;
+  if (!body) return;
+  if (!body.id) body.id = "log";
+  const line = document.createElement("div");
+  line.textContent = `${new Date().toLocaleTimeString()}  ${message}`;
+  body.prepend(line);
+  while (body.children.length > 150) body.lastChild.remove();
 }
 
-function show(tableId, emptyId, hasRows) {
-  el(tableId).hidden = !hasRows;
-  el(emptyId).hidden = hasRows;
-}
-
-async function loadPractice(sessionId) {
-  try {
-    const summary = await api(`/sessions/${sessionId}/practice`);
-    const body = el("practiceTable").querySelector("tbody");
-    body.textContent = "";
-    for (const row of summary.drivers) {
-      const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${row.driver_name}</td><td>${row.team ?? ""}</td>
-        <td class="num">${row.best_lap_s?.toFixed(3) ?? "–"}</td>
-        <td class="num">${row.gap_to_best_s != null ? "+" + row.gap_to_best_s.toFixed(3) : "–"}</td>
-        <td class="num">${row.laps_completed ?? "–"}</td><td>${row.last_compound ?? "–"}</td>`;
-      body.append(tr);
-    }
-    show("practiceTable", "practiceEmpty", summary.drivers.length > 0);
-  } catch (error) {
-    log(`practice: ${error.message}`);
-  }
-}
-
-function renderQualifying(message) {
-  el("periodPill").textContent = message.period ?? "—";
-  const body = el("qualiTable").querySelector("tbody");
-  body.textContent = "";
-  message.predictions.forEach((row, index) => {
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td class="num">${index + 1}</td><td>${row.driver_name}</td><td>${row.team ?? ""}</td>
-      <td class="num">${row.predicted_lap_time_s?.toFixed(3) ?? "–"}</td>
-      <td class="num">${row.advancement_probability != null ? (row.advancement_probability * 100).toFixed(0) + "%" : "–"}</td>`;
-    body.append(tr);
-  });
-  show("qualiTable", "qualiEmpty", message.predictions.length > 0);
-}
-
-function renderRace(message) {
-  el("lapPill").textContent = message.lap_number ? `lap ${message.lap_number}` : "—";
-  const body = el("raceTable").querySelector("tbody");
-  body.textContent = "";
-  message.predictions.forEach((row, index) => {
-    const strategy = row.strategy_probabilities
-      ? Object.entries(row.strategy_probabilities).sort((a, b) => b[1] - a[1])[0]
-      : null;
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td class="num">${index + 1}</td><td>${row.driver_name}</td><td>${row.team ?? ""}</td>
-      <td class="num">${row.predicted_finish_position?.toFixed(2) ?? "–"}</td>
-      <td>${strategy ? `${strategy[0]} <span class="pill">${(strategy[1] * 100).toFixed(0)}%</span>` : "–"}</td>`;
-    body.append(tr);
-  });
-  show("raceTable", "raceEmpty", message.predictions.length > 0);
-  setGate(message.is_gated ? message.gate_reason || "non-green conditions" : null);
-}
-
-function setGate(reason) {
-  const banner = el("gateBanner");
-  banner.classList.toggle("on", !!reason);
-  if (reason) {
-    banner.textContent = `${reason.replace("_", " ")} — predictions are still updating but ` +
-      "assume normal racing, so treat them as low confidence.";
-  }
-}
-
+/** Follow a session that is running now.
+ *
+ *  The replay player and this share one page deliberately: a race being run
+ *  and a race being replayed are the same thing to a viewer, and the only
+ *  difference is where the next update comes from. */
 function connectSocket(sessionId) {
   if (socket) socket.close();
   setStatus("connecting…");
   socket = new WebSocket(`${WS_BASE}/sessions/${sessionId}/live`);
-  socket.addEventListener("open", () => setStatus(`connected to session ${sessionId}`, "live"));
+  socket.addEventListener("open", () => setStatus(`following session ${sessionId}`, "live"));
   socket.addEventListener("close", () => setStatus("disconnected"));
   socket.addEventListener("error", () => setStatus("socket error", "error"));
   socket.addEventListener("message", (event) => {
     const message = JSON.parse(event.data);
     switch (message.type) {
-      case "connected": log(`connected · regime ${message.regs_regime}`); break;
-      case "qualifying_update": renderQualifying(message); log(`qualifying ${message.period}`); break;
-      case "race_update": renderRace(message); log(`race lap ${message.lap_number}`); break;
-      case "race_control":
-        log(`race control: ${message.event_type} (lap ${message.lap_number ?? "–"})`);
-        setGate(["safety_car", "vsc", "red_flag"].includes(message.event_type) ? message.event_type : null);
+      case "connected":
+        logLine(`connected · regime ${message.regs_regime}`);
         break;
-      case "training_progress": log(`training: ${message.stage}`); break;
-      default: log(`message: ${message.type}`);
+      case "qualifying_update":
+        logLine(`qualifying ${message.period} · ${message.predictions.length} cars`);
+        break;
+      case "race_update":
+        logLine(`race lap ${message.lap_number}${message.is_gated ? " (gated)" : ""}`);
+        break;
+      case "race_control": {
+        logLine(`race control: ${message.event_type} (lap ${message.lap_number ?? "–"})`);
+        const overlay = el("rcOverlay");
+        overlay.querySelector(".at").textContent = "now";
+        const flag = overlay.querySelector(".flag");
+        flag.className = `flag ${message.event_type}`;
+        flag.textContent = message.event_type.replace("_", " ");
+        overlay.querySelector(".msg").textContent = `lap ${message.lap_number ?? "–"}`;
+        overlay.classList.add("on");
+        break;
+      }
+      case "training_progress":
+        logLine(`training: ${message.stage}`);
+        break;
+      default:
+        logLine(`message: ${message.type}`);
     }
   });
 }
 
-el("connectBtn").addEventListener("click", () => {
-  const sessionId = el("sessionSelect").value;
-  if (!sessionId) return;
-  const type = el("sessionSelect").selectedOptions[0].dataset.type || "";
-  if (type.startsWith("FP")) loadPractice(sessionId);
-  connectSocket(sessionId);
-});
+/* ======================================================================
+ * The dead channel behind it all
+ * ================================================================== */
 
-/* =============================== start ================================= */
+/** Vintage static, rendered small and turned almost all the way down.
+ *
+ *  It runs at a fraction of the display resolution and is scaled up by CSS:
+ *  the effect is a texture, so nobody can tell, and it costs a fraction of
+ *  what a full-resolution pass would. It stops when the tab is hidden and
+ *  never starts if the viewer has asked for reduced motion. */
+(function tube() {
+  const canvas = el("tube");
+  // Read back every frame for the snow, so say so and let the browser keep
+  // the buffer somewhere it can be read cheaply.
+  const ctx = canvas.getContext("2d", { alpha: false, willReadFrequently: true });
+  const SCALE = 0.22;
+  const BARS = [
+    [240, 235, 220], [210, 170, 60], [60, 185, 160], [80, 165, 60],
+    [185, 60, 140], [200, 60, 55], [45, 60, 170], [200, 149, 108],
+  ];
+  let width = 0, height = 0, seed = 42, running = true;
+
+  const rand = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  const hash = (x) => { const s = Math.sin(x * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); };
+  const noise = (x) => {
+    const i = Math.floor(x), f = x - i, s = f * f * (3 - 2 * f);
+    return hash(i) * (1 - s) + hash(i + 1) * s;
+  };
+
+  function size() {
+    width = Math.max(2, Math.round(window.innerWidth * SCALE));
+    height = Math.max(2, Math.round(window.innerHeight * SCALE));
+    canvas.width = width; canvas.height = height;
+  }
+  size();
+  window.addEventListener("resize", size);
+  document.addEventListener("visibilitychange", () => { running = !document.hidden; });
+
+  function draw(now) {
+    requestAnimationFrame(draw);
+    if (!running || reducedMotion) return;
+    const time = now / 1000;
+
+    ctx.fillStyle = "#0a0b0d";
+    ctx.fillRect(0, 0, width, height);
+
+    // Bars, melting and reforming on a slow cycle.
+    const cycle = (time * 0.075) % 1;
+    let melt = Math.min(cycle * 2, 1);
+    if (cycle > 0.85) melt *= 1 - (cycle - 0.85) / 0.15;
+
+    const barWidth = width / BARS.length;
+    for (let i = 0; i < BARS.length; i += 1) {
+      const colour = BARS[i];
+      const barMelt = Math.min(Math.max(melt + noise(i * 3.7 + time * 0.3) * 0.3 - 0.15, 0), 1);
+      const slices = Math.ceil(barWidth / 2);
+      for (let s = 0; s < slices; s += 1) {
+        const x = i * barWidth + s * 2;
+        const drip = barMelt * height * (0.3 + noise((i * 100 + s) * 1.7 + time * 0.25) * 0.7);
+        const stretch = 1 + barMelt * (0.5 + noise((i * 100 + s) * 2.3) * 1.5);
+        ctx.fillStyle = `rgb(${colour[0]},${colour[1]},${colour[2]})`;
+        ctx.globalAlpha = 1 - barMelt * 0.3;
+        ctx.fillRect(x, drip, 2, height * stretch);
+      }
+    }
+    ctx.globalAlpha = 1;
+
+    // A rolling band, the way a mistuned set drifts.
+    const rollY = ((time * 0.15 * height) % (height * 1.4)) - height * 0.2;
+    const roll = ctx.createLinearGradient(0, rollY - 30, 0, rollY + 30);
+    roll.addColorStop(0, "rgba(255,240,210,0)");
+    roll.addColorStop(0.5, "rgba(255,240,210,0.18)");
+    roll.addColorStop(1, "rgba(255,240,210,0)");
+    ctx.fillStyle = roll;
+    ctx.fillRect(0, rollY - 30, width, 60);
+
+    // Snow, sampled rather than swept: a full pass per frame is not worth it.
+    const image = ctx.getImageData(0, 0, width, height);
+    const data = image.data;
+    const pixels = width * height;
+    seed = Math.floor(time * 60) * 9973;
+    for (let p = 0; p < pixels * 0.06; p += 1) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      const idx = (seed % pixels) * 4;
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      const brightness = seed & 0xff;
+      data[idx] = Math.min(255, data[idx] + brightness);
+      data[idx + 1] = Math.min(255, data[idx + 1] + (brightness * 0.85) | 0);
+      data[idx + 2] = Math.min(255, data[idx + 2] + (brightness * 0.7) | 0);
+    }
+    ctx.putImageData(image, 0, 0);
+
+    // Scan lines, at this scale one row in two.
+    ctx.fillStyle = "rgba(0,0,0,0.22)";
+    for (let y = 0; y < height; y += 2) ctx.fillRect(0, y, width, 1);
+  }
+  requestAnimationFrame(draw);
+})();
+
+/* ======================================================================
+ * Start
+ * ================================================================== */
 
 (async function start() {
   API = await detectApi();
   WS_BASE = API.replace(/^http/, "ws");
-  showView("entrance");
-  await loadEntrance();
-  loadSessions();
-  loadCatalogue();
+
+  buildBoard();
+  buildPanelsMenu();
+  bodies.map.innerHTML = mapMarkup();
+  bodies.map.style.overflow = "hidden";
+  bodies.map.style.display = "flex";
+
+  const { now } = await loadRaces();
+
+  // The page opens on the next race, which is what a viewer wants on a normal
+  // day; if the calendar is finished, it opens on the last one that ran.
+  if (upcoming.length) {
+    await openUpcoming(upcoming[0]);
+  } else {
+    const ready = (catalogue || []).find((round) => round.cached);
+    if (ready) await openReplay(ready.session_key, ready);
+  }
+
+  if (now && now.live && now.live.session_id) {
+    // A session is running: show it, and follow it.
+    layout.log.visible = true;
+    saveLayout(); buildBoard(); buildPanelsMenu();
+    connectSocket(now.live.session_id);
+    if (now.live.openf1_session_key) {
+      await openReplay(now.live.openf1_session_key, now.live).catch(() => {});
+    }
+  } else {
+    logLine("no session is running — showing the calendar");
+  }
 })();
 </script>
 </body>
