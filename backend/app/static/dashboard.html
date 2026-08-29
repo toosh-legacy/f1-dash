@@ -106,7 +106,9 @@ main { padding: 18px 20px 40px; max-width: 1560px; margin: 0 auto; }
   background: var(--panel); font-size: 13px;
 }
 .entrance .target b { font-weight: 650; }
+.entrance .actions { display: flex; gap: 10px; justify-content: center; }
 #connectBig { font-size: 15px; padding: 12px 30px; border-radius: 10px; }
+#browseReplays { font-size: 15px; padding: 12px 22px; border-radius: 10px; }
 .entrance .aside { margin-top: 22px; color: #6c727a; font-size: 12px; }
 
 /* ---------- map ---------- */
@@ -117,8 +119,9 @@ main { padding: 18px 20px 40px; max-width: 1560px; margin: 0 auto; }
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: 12px 16px; border-bottom: 1px solid var(--line);
 }
-.map-head .where { font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
-.map-head .when { color: var(--muted); font-size: 12px; }
+.map-head .titling { min-width: 0; }
+.map-head .where { font-size: 19px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.2; }
+.map-head .when { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .flag {
   font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
   padding: 3px 10px; border-radius: 999px; border: 1px solid;
@@ -143,7 +146,9 @@ svg#map { display: block; width: 100%; height: min(64vh, 660px); }
 #pitSurface { fill: none; stroke: #101216; stroke-width: 4; stroke-linejoin: round;
   stroke-linecap: round; }
 #startLine { stroke: #ffffff; stroke-width: 3.5; opacity: .85; }
-.car-dot { r: 13; stroke: #0b0c0e; stroke-width: 2; }
+.car { cursor: pointer; }
+.car-dot { r: 13; stroke: #0b0c0e; stroke-width: 2; transition: r .12s; }
+.car:hover .car-dot { r: 15; }
 .car-label { font-size: 12px; font-weight: 800; fill: #0b0c0e; text-anchor: middle;
   dominant-baseline: central; pointer-events: none; letter-spacing: -0.02em; }
 .car-name { font-size: 10.5px; font-weight: 700; fill: #e8eaed; text-anchor: middle;
@@ -158,7 +163,11 @@ svg#map { display: block; width: 100%; height: min(64vh, 660px); }
 /* ---------- transport ---------- */
 .transport { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); }
 .transport .clock { font-family: var(--mono); font-size: 12px; color: var(--muted); min-width: 104px; }
-.transport input[type=range] { flex: 1; accent-color: var(--mustard); }
+.scrubwrap { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+.scrubwrap input[type=range] { width: 100%; accent-color: var(--mustard); margin: 0; }
+/* The whole race as one bar: where it ran green, and where it did not. A
+   scrubber with no marks makes you hunt for the safety car by dragging. */
+#flagStrip { height: 4px; border-radius: 2px; background: #23272e; overflow: hidden; }
 .lapcount { font-variant-numeric: tabular-nums; font-weight: 650; min-width: 96px; }
 
 /* ---------- side column ---------- */
@@ -178,16 +187,22 @@ svg#map { display: block; width: 100%; height: min(64vh, 660px); }
 .side-foot { border-top: 1px solid var(--line); padding: 11px 14px; color: var(--muted); font-size: 12px; }
 
 .order-row {
-  display: grid; grid-template-columns: 26px 8px 1fr auto; gap: 8px; align-items: center;
-  padding: 7px 12px; border-bottom: 1px solid #1c1f24; cursor: pointer;
+  display: grid; grid-template-columns: 22px 4px 1fr auto; gap: 9px; align-items: center;
+  padding: 7px 13px; border-bottom: 1px solid #1a1d21; cursor: pointer;
+  transition: background .12s;
 }
 .order-row:hover { background: var(--panel-2); }
-.order-row .pos { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; }
-.order-row .bar { width: 4px; height: 20px; border-radius: 2px; }
+.order-row.leader { background: linear-gradient(90deg, rgba(227,179,65,.07), transparent 60%); }
+.order-row .pos { color: var(--muted); font-variant-numeric: tabular-nums; text-align: right; font-size: 12px; }
+.order-row.leader .pos { color: var(--mustard); font-weight: 700; }
+.order-row .bar { width: 4px; height: 22px; border-radius: 2px; }
 .order-row .who { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.order-row .who b { font-size: 13px; font-weight: 650; }
-.order-row .who small { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.order-row .gap { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.order-row .who b { font-size: 13px; font-weight: 700; letter-spacing: -0.01em; }
+.order-row .who small { color: #7c828a; font-size: 11px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
+.order-row .gap { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px;
+  display: flex; align-items: center; gap: 7px; }
+.order-row .gap .t { min-width: 46px; text-align: right; }
 .tyre { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); }
 .tyre.SOFT { color: #ff6b6b; border-color: #5c2626; }
 .tyre.MEDIUM { color: var(--amber); border-color: #5c4a1a; }
@@ -224,6 +239,17 @@ tbody tr:hover { background: var(--panel-2); }
 .replay-card .actions { display: flex; gap: 8px; margin-top: auto; align-items: center; }
 .badge { font-size: 10px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
 .badge.ready { color: var(--green); border-color: #1e5c37; background: #10261a; }
+
+/* ---------- race control ---------- */
+#rcCard { margin-top: 16px; }
+#rcLog { max-height: 216px; overflow: auto; }
+.rc-row {
+  display: grid; grid-template-columns: 62px 74px 1fr; gap: 10px; align-items: center;
+  padding: 6px 16px; border-bottom: 1px solid #1a1d21; font-size: 12.5px;
+}
+.rc-row:hover { background: var(--panel-2); }
+.rc-row .at { color: #6c727a; font-family: var(--mono); font-size: 11.5px; }
+.rc-row .msg { color: #b9bfc7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ---------- live view ---------- */
 .stack { display: grid; gap: 16px; }
@@ -262,7 +288,10 @@ footer b { color: #c6ccd3; font-weight: 600; }
       <p>Per-car predictions on two clocks: a model retrained after each session,
          and inference that runs while the cars are on track.</p>
       <div class="target" id="connectTarget"><span class="dot"></span><span>finding the session…</span></div>
-      <div><button id="connectBig" class="primary">Connect</button></div>
+      <div class="actions">
+        <button id="connectBig" class="primary">Connect</button>
+        <button id="browseReplays">Browse replays</button>
+      </div>
       <div class="aside" id="connectAside"></div>
     </div>
   </section>
@@ -272,11 +301,12 @@ footer b { color: #c6ccd3; font-weight: 600; }
     <div class="map-grid">
       <div class="card">
         <div class="map-head">
-          <div>
+          <div class="titling">
             <div class="where" id="mapWhere">loading…</div>
             <div class="when" id="mapWhen">—</div>
           </div>
           <div class="spacer"></div>
+          <span class="pill" id="nextUp" hidden></span>
           <button id="askModel">What is the model thinking?</button>
           <span class="flag green" id="flagChip">green</span>
         </div>
@@ -296,7 +326,10 @@ footer b { color: #c6ccd3; font-weight: 600; }
         <div class="transport">
           <button id="playBtn" class="primary">▶</button>
           <span class="lapcount" id="lapCount">lap —</span>
-          <input type="range" id="scrub" min="0" max="100" value="0" step="1" />
+          <div class="scrubwrap">
+            <input type="range" id="scrub" min="0" max="100" value="0" step="1" />
+            <div id="flagStrip" title="flag state through the race"></div>
+          </div>
           <span class="clock" id="clock">0:00 / 0:00</span>
           <select id="speed">
             <option value="1">1×</option>
@@ -322,19 +355,22 @@ footer b { color: #c6ccd3; font-weight: 600; }
           <div class="thinking" id="thinking"><h3>What the model is thinking</h3></div>
           <button class="askBtn" id="askAgain">Ask again for this lap</button>
           <div id="panelBody"></div>
-        </div>
-
-        <div class="side-foot">
-          <span class="pill" id="panelCoverage">—</span>
-          <div id="panelAccuracy" style="margin-top:8px;color:#c6ccd3"></div>
-          <div id="panelNote" style="margin-top:8px"></div>
+          <div class="side-foot">
+            <span class="pill" id="panelCoverage">—</span>
+            <div id="panelAccuracy" style="margin-top:8px;color:#c6ccd3"></div>
+            <div id="panelNote" style="margin-top:8px"></div>
+          </div>
         </div>
       </div>
     </div>
 
-    <div class="card" style="margin-top:16px">
-      <div class="section-head"><h2>Race control</h2><span class="spacer"></span><span class="pill" id="rcCount">—</span></div>
-      <div id="rcLog" style="max-height:200px;overflow:auto"><div class="empty">No messages.</div></div>
+    <div class="card" id="rcCard">
+      <div class="section-head">
+        <h2>Race control</h2>
+        <span class="spacer"></span>
+        <span class="pill" id="rcCount">—</span>
+      </div>
+      <div id="rcLog"><div class="empty">No messages.</div></div>
     </div>
   </section>
 
@@ -549,8 +585,9 @@ async function connect() {
   const latest = entryPoint && entryPoint.latest_replay;
   if (latest && await openReplay(latest.session_key, { quiet: true })) {
     if (upcoming && upcoming.session_id && !live) {
-      el("mapWhen").textContent +=
-        ` · next: ${upcoming.circuit} ${upcoming.session_type}, ${when(upcoming.start_time)}`;
+      const chip = el("nextUp");
+      chip.textContent = `next: ${upcoming.session_type}, ${when(upcoming.start_time)}`;
+      chip.hidden = false;
     }
     return;
   }
@@ -563,6 +600,7 @@ async function connect() {
   setStatus("no replay built");
 }
 el("connectBig").addEventListener("click", connect);
+el("browseReplays").addEventListener("click", () => showView("replays"));
 
 /* ============================ replay player ============================= */
 
@@ -613,7 +651,7 @@ async function openReplay(sessionKey, options = {}) {
   projectionCache.clear();
 
   const box = el("map").viewBox.baseVal;
-  const project = fitTransform(bundle.track.bounds, box.width, box.height, 30);
+  const project = fitTransform(bundle.track.bounds, box.width, box.height, 18);
   player.path = bundle.track.path.map(([x, y]) => project(x, y));
   player.pitPath = bundle.track.pit_path.map(([x, y]) => project(x, y));
 
@@ -647,10 +685,46 @@ async function openReplay(sessionKey, options = {}) {
   el("mapWhen").textContent =
     `${when(session.date_start)} · ${bundle.total_laps} laps · ${bundle.drivers.length} cars`;
   el("scrub").max = String(Math.round(bundle.duration_s));
+  el("flagStrip").style.background = flagGradient(bundle);
   setStatus("replay ready", "live");
   renderFrame(player.time);
   showView("dash");
   return true;
+}
+
+/** The flag state across a whole race, as a css gradient.
+ *
+ *  Hard stops rather than blends: a race is green or it is not, and a fade
+ *  would invent a state that never existed. Green is the quiet background
+ *  colour so the interruptions are what the eye lands on. */
+/* Weighted by how much a state actually changes the race. A local yellow lasts
+   a corner and there are dozens of them; drawn as loudly as a safety car they
+   turn the bar into stripes and it stops being readable at a glance. So yellow
+   sits just above the background, and the neutralisations that reshape a race
+   are the ones that catch the eye. */
+const FLAG_COLOURS = {
+  green: "#23272e",
+  yellow: "#3f3722",
+  vsc: "#8a6a15",
+  safety_car: "#d69a20",
+  red_flag: "#c0392b",
+};
+
+function flagGradient(bundle) {
+  const duration = bundle.duration_s || 1;
+  const stops = [];
+  let previous = null;
+  for (const frame of bundle.frames) {
+    const flag = frame.flag || "green";
+    if (flag === previous) continue;
+    const at = ((frame.t / duration) * 100).toFixed(3);
+    const colour = FLAG_COLOURS[flag] || FLAG_COLOURS.green;
+    if (stops.length) stops.push(`${stops[stops.length - 1].split(" ")[0]} ${at}%`);
+    stops.push(`${colour} ${at}%`);
+    previous = flag;
+  }
+  if (!stops.length) return FLAG_COLOURS.green;
+  return `linear-gradient(90deg, ${stops.join(", ")}, ${stops[stops.length - 1].split(" ")[0]} 100%)`;
 }
 
 const carNodes = new Map();
@@ -828,13 +902,16 @@ function renderOrder(lap) {
     const driver = drivers.get(row.number) || {};
     const node = document.createElement("div");
     node.className = "order-row";
+    const leading = row.position === 1;
+    node.className = "order-row" + (leading ? " leader" : "");
     node.innerHTML = `
       <span class="pos">${row.position ?? "–"}</span>
       <span class="bar" style="background:${driver.colour || "#666"}"></span>
       <span class="who"><b>${driver.code || row.number}</b><small>${driver.team || ""}</small></span>
       <span class="gap">
         ${row.compound ? `<span class="tyre ${row.compound}">${row.compound[0]}${row.tyre_age ?? ""}</span>` : ""}
-        ${row.gap_to_leader_s != null ? `+${row.gap_to_leader_s.toFixed(1)}s` : ""}
+        <span class="t">${leading ? "leader"
+          : row.gap_to_leader_s != null ? `+${row.gap_to_leader_s.toFixed(1)}` : "–"}</span>
       </span>`;
     node.addEventListener("click", () => selectCar(row.number));
     container.append(node);
@@ -855,11 +932,12 @@ function renderRaceControl(upTo) {
   container.textContent = "";
   for (const event of events.slice(-60).reverse()) {
     const row = document.createElement("div");
-    row.className = "order-row";
-    row.style.gridTemplateColumns = "70px 90px 1fr";
-    row.innerHTML = `<span class="gap">${clock(event.t)}</span>
-      <span>${event.state ? `<span class="flag ${event.state}">${event.state.replace("_", " ")}</span>` : ""}</span>
-      <span class="who"><small>${event.message || ""}</small></span>`;
+    row.className = "rc-row";
+    row.innerHTML = `<span class="at">${clock(event.t)}</span>
+      <span>${event.state
+        ? `<span class="flag ${event.state}">${event.state.replace("_", " ")}</span>`
+        : ""}</span>
+      <span class="msg" title="${(event.message || "").replace(/"/g, "&quot;")}">${event.message || ""}</span>`;
     container.append(row);
   }
 }
@@ -921,7 +999,11 @@ function matchesSearch(round, query) {
 
 function renderCatalogue() {
   const query = el("replaySearch").value.trim();
-  const rounds = (replayCatalogue || []).filter((round) => matchesSearch(round, query));
+  // Built races first. The library is for watching, and only some of it can be
+  // watched right now; the rest is an offer to wait several minutes.
+  const rounds = (replayCatalogue || [])
+    .filter((round) => matchesSearch(round, query))
+    .sort((a, b) => (b.cached === true) - (a.cached === true));
   const built = rounds.filter((round) => round.cached).length;
   el("replayCount").textContent =
     `${rounds.length} race${rounds.length === 1 ? "" : "s"} · ${built} ready`;
@@ -952,7 +1034,9 @@ function replayCard(round) {
 
   const actions = card.querySelector(".actions");
   const open = document.createElement("button");
-  open.className = "primary";
+  // Only what can be watched now gets the loud button. Everything else is an
+  // offer to wait several minutes, and should not compete with it.
+  open.className = round.cached ? "primary" : "";
   open.textContent = round.cached ? "Watch" : "Build & watch";
   open.addEventListener("click", () => (round.cached ? openReplay(round.session_key)
                                                     : buildReplay(round, card, open)));

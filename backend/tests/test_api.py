@@ -160,8 +160,15 @@ class TestWebSocket:
         with client.websocket_connect(f"/sessions/{session_id}/live") as socket:
             assert socket.receive_json()["type"] == "connected"
             broadcaster.publish_threadsafe(session_id, race_control("safety_car", 24))
-            message = socket.receive_json()
-        assert message["type"] == "race_control"
+            # A retraining job queued by an earlier test publishes its progress
+            # to this same session, so the next frame is not necessarily ours.
+            # The claim is that the message arrives, not that nothing else does.
+            for _attempt in range(10):
+                message = socket.receive_json()
+                if message["type"] == "race_control":
+                    break
+            else:
+                raise AssertionError("the published message never arrived")
         assert message["event_type"] == "safety_car"
 
 
