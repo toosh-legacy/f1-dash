@@ -1,27 +1,81 @@
 # F1 Live Prediction Dashboard — 2026 season
 
-Per-car live predictions for the current Formula 1 season, on two separate clocks:
+Watch a Grand Prix back on a reconstructed circuit map, and see what a trained
+model makes of it at any point in the race — with an honest account of how often
+that model has been right.
 
-- **Retraining** runs once, after a session ends, using that session's real results as new
-  training data.
-- **Live inference** runs continuously during a session — every lap in a race, every period in
-  qualifying — feeding current live state through the already-trained model.
+Three things, working off the same data:
 
-These are architecturally separate. A live request path never triggers retraining.
+- **A race map.** Every car moving around the circuit it actually drove, drawn
+  from the position feed rather than from any bundled track file, with pit stops,
+  flags and the running order following the playhead.
+- **A prediction, beside the map.** Who finishes where from this lap, with every
+  term of the reasoning shown, plus the trained model's own answer in a column
+  next to it.
+- **A scoreboard for both.** Every prediction is scored against what actually
+  happened, next to the baseline it has to beat — reading the running order and
+  leaving it alone. When the predictions are not helping, the dashboard says so.
 
-Built to `guide.md`, which remains the specification; this README covers how to run it.
+Underneath, per-car predictions run on **two separate clocks**:
 
-## Stack
+- **Retraining** runs once, after a session ends, using that session's real
+  results as new training data.
+- **Live inference** runs continuously during a session — every lap in a race,
+  every period in qualifying — feeding current live state through the
+  already-trained model.
 
-| Layer | Choice |
-|---|---|
-| API | Python 3.13, FastAPI, native WebSockets |
-| Persistence | SQLAlchemy 2 + SQLite (Postgres is a connection-string change) |
-| Models | XGBoost (all four prediction models) |
-| Completed-session data | `fastf1` |
-| Live session data | OpenF1 REST (no API key) |
-| Replay geometry | OpenF1 `location` feed, reconstructed server-side |
-| Frontend | Static HTML/JS/SVG, no build step, served by a zero-dependency Node server |
+These are architecturally separate. A live request path never triggers
+retraining.
+
+Built to `guide.md`, which remains the specification; this README covers how it
+is put together and how to run it.
+
+## Architecture at a glance
+
+```
+            ┌───────────────────────────── the browser ─────────────────────────────┐
+            │  entrance → race map + prediction tab · replay library · live view    │
+            └──────▲──────────────────────────────▲────────────────────────┬────────┘
+                   │ REST (JSON, gzipped bundles) │ WebSocket              │
+       ┌───────────┴──────────────────────────────┴────────────────────────▼──────┐
+       │                        FastAPI  ·  backend/app/main.py                   │
+       │   never trains · never blocks on a build · hands long work to the pool   │
+       └───┬──────────────┬───────────────┬────────────────┬───────────────┬──────┘
+           │              │               │                │               │
+           ▼              ▼               ▼                ▼               ▼
+      live loops      job pool        registry        projection       replay
+      (threads)      (1 worker)       + gate        + calibration   reconstruction
+           │              │               │                │               │
+           └──────┬───────┴───────┬───────┴────────┬───────┴───────┬───────┘
+                  ▼               ▼                ▼               ▼
+             OpenF1 REST       fastf1        model artifacts    database
+           live state + X/Y   completed        (on disk)      (SQLAlchemy 2)
+                                sessions
+```
+
+| Layer | What it owns | Where |
+|---|---|---|
+| **Data sources** | Completed sessions (results, laps, stints, weather) and live state (position, intervals, tyres, race control, raw track X/Y) | `data/fastf1_client.py`, `data/openf1_client.py` |
+| **Replay reconstruction** | Turning a coarse position feed into a circuit, a pit lane, and every car's progress around them | `data/replay.py` |
+| **Features** | The engineered vector, the fallbacks, and the regulation-transfer policy that decides what a 2026 model may learn from | `features/` |
+| **Training** | Labelling a finished session, assembling the matrix, fitting, scoring | `training/` |
+| **Registry** | Versioning, the validation gate, and deliberate promotion | `models/registry.py` |
+| **Serving** | Live loops per session, the arithmetic projection, the trained model's answer | `live/` |
+| **Measurement** | Scoring stored predictions against the classification of the race they were made in | `models/calibration.py` |
+| **Storage** | Sessions, snapshots, models, race control, cached projections, shared replay bundles | `db/` |
+
+## Tech stack
+
+| Layer | Choice | Why this one |
+|---|---|---|
+| API | Python 3.13, FastAPI, native WebSockets | One language for the models and the service; a synchronous endpoint runs in FastAPI's threadpool, which is what the blocking `fastf1` calls need |
+| Persistence | SQLAlchemy 2 + SQLite | Zero setup for a single machine, and nothing outside `database.py` knows which engine it is — Postgres is a connection-string change |
+| Models | XGBoost | Gradient boosting on a few thousand rows of tabular features, which is the shape of the data; conservative hyperparameters because the corpus is small |
+| Completed sessions | `fastf1` | The reference client for official timing, with its own on-disk cache |
+| Live sessions | OpenF1 REST | No API key, and the same endpoints replay a finished session, which is how the live path is exercised out of season |
+| Replay geometry | OpenF1 `location`, reconstructed server-side | Raw track X/Y per car; the circuit is derived from it rather than shipped, so a new track needs no new asset |
+| Frontend | Static HTML/JS/SVG, no build step | The map is a few hundred SVG nodes updated on a rAF loop; a build pipeline would earn nothing |
+| Frontend host | Node standard library only | Serves the page on its own origin, as it would behind a CDN, and proxies the API and the WebSocket upgrade in development |
 
 ## Quick start
 
@@ -55,6 +109,108 @@ npm run smoke      # end-to-end check: API, dashboard, WebSocket
 The API also serves the dashboard directly at <http://localhost:8000/>. The Node server exists so
 the frontend can live on its own origin — as it would behind a CDN — and to proxy the WebSocket
 upgrade in development.
+
+## How the work flows
+
+Four cycles, on four different clocks. Nothing in the fast ones waits on the
+slow ones.
+
+### 1. Before a weekend — seeding
+
+`app.cli seed` pulls the season's calendar, circuits, teams and drivers from
+FastF1 and writes them as rows. Circuit geometry that no feed carries — altitude,
+average pit loss, historical safety-car rate, how hard it is to overtake — comes
+from a small reference table in `data/seed.py`. This is the only step that
+invents anything, and it is data, not code.
+
+### 2. After a session ends — retraining
+
+```
+POST /sessions/{id}/retrain   →   job id, immediately
+```
+
+The request enqueues and returns; a background worker then ingests the session
+from FastF1, labels it (a qualifying time, whether the driver advanced, a
+finishing position, the strategy actually run), assembles a training matrix,
+fits a new version, scores it on a held-out recent session, and records it.
+
+It is **recorded**, not activated. The gate compares the candidate with the
+active version and refuses a worse one; it also refuses an implausibly good one,
+on the grounds that a model that has apparently solved motor racing has more
+likely seen the answer. Even a passing model waits for `POST /models/{id}/promote`.
+
+`app.cli backfill` runs this over a whole season in chronological order, which is
+how the corpus is built from scratch.
+
+### 3. While the cars are running — live inference
+
+A polling loop per session, on its own thread:
+
+```
+race control  ──▶ classify ──▶ record ──▶ push immediately  (a safety car cannot
+                                                             wait for the next lap)
+new lap seen  ──▶ build features ──▶ active model ──▶ store ──▶ broadcast
+```
+
+Predictions during a safety car, VSC or red flag are still produced, but flagged
+`is_gated` and rendered as low-confidence: a confident finishing position assumes
+racing that is not happening.
+
+### 4. After the fact — replay, evaluate, score
+
+```
+POST /replays/{key}/build     reconstruct the circuit and the race   (minutes)
+POST /replays/{key}/predict   run the model over every lap, cached   (minutes)
+GET  /predictions/accuracy    score all of it against what happened  (instant)
+```
+
+A finished race never changes, so all of this is done once and kept. The bundle
+goes in the database, so one person's build is everyone's replay; the per-lap
+projections go in a cache keyed by the model version that produced them.
+
+## How that is possible
+
+The interesting engineering is in what keeps those cycles from interfering.
+
+**Long work never happens on a request path.** A single-worker thread pool owns
+retraining, replay building and evaluation. Endpoints hand it a closure and
+return a job record. Progress crosses back into the event loop through
+`asyncio.run_coroutine_threadsafe`, so a background thread can push to a
+WebSocket without either side knowing about the other.
+
+**Features are computed as of a point in time.** Aggregates — team form, driver
+profile, circuit history — are assembled with an `as_of` cutoff, so a session's
+own results can never feed the features used to predict it. This is not
+theoretical: without it, finishing-position error measured 0.0000, and the gate
+refused the model for being suspiciously perfect. That refusal is what found the
+bug.
+
+**What a model may learn from is declared, not assumed.** 2026 reset the
+regulations, so `features/transfer.py` carries a policy per feature: car, team
+and tyre features train on 2026 data only; driver skill and track geometry may
+use the full record; power-unit and pit-loss carry over at reduced weight. The
+training pipeline queries it row by row, and a feature without a declared policy
+fails at import rather than quietly learning from a car that no longer exists.
+
+**Everything expensive is cached at the level it is expensive at.** Season
+aggregates in process; built replays in the database, mirrored to disk; per-lap
+projections in the database, keyed by model version so promoting a new model
+makes the old answers stale rather than wrong. A lap costs about twenty seconds
+cold and 150 ms warm.
+
+**The geometry is derived, not shipped.** The position feed updates roughly every
+2.7 seconds — a 250-metre jump at racing speed, about thirty points a lap — so
+the circuit is reconstructed by folding every green lap of a race onto one lap
+and refining it twice, and cars are then carried as *progress along that path*.
+Interpolating progress moves a car through the corners it actually drove. Drawing
+raw coordinates would cut every one of them.
+
+**Predictions are measured, not asserted.** Because both the projections and the
+results are stored, the whole prediction layer can be scored against the
+classification, next to the baseline of doing nothing. That measurement is
+wired into the dashboard, and it has already overturned two designs and one
+plausible-sounding assumption. Anything here presented as an improvement was
+measured to be one.
 
 ## The race map
 
@@ -157,24 +313,20 @@ boundary, race updates every lap, and race-control changes arrive immediately.
 
 ## The four rules this codebase is built around
 
-1. **Retraining is a batch job.** `POST /sessions/{id}/retrain` enqueues work on a background
-   thread (`app/training/jobs.py`) and returns a job record immediately. Progress crosses back
-   into the event loop through `asyncio.run_coroutine_threadsafe`.
-2. **Every model version passes a validation gate before it can go live.** `app/models/registry.py`
-   compares a candidate against the active version on a held-out recent session, refuses to promote
-   a worse one, and treats an implausibly good score as suspected leakage rather than success.
-   Even a passing model waits for an explicit `POST /models/{id}/promote`.
-3. **The 2026 transfer table is executable policy, not documentation.** `app/features/transfer.py`
-   declares a policy per feature — car/team/tyre features train on 2026 data only, driver and
-   track-geometry features may use the full record, power-unit and pit-loss carry over weakly.
-   Training pipelines query it; a feature without a declared policy fails at import.
-4. **Live race predictions are gated outside green-flag conditions.** Safety car, VSC, and red
-   flag are detected from race control, stored as `RaceControlEvent`, flagged on the prediction as
-   `is_gated`, and surfaced in the dashboard as low-confidence rather than a confident number.
+Everything above follows from four constraints the specification treats as
+non-negotiable. Each is enforced in code rather than by convention, and each has
+a file that would have to be defeated to break it.
 
-`regs_regime` is a field on every session, snapshot and model — never a hardcoded `"2026"` — so the
-next regulation reset does not require a rewrite. A model trained under one regime is refused at
-serve time under another.
+| Rule | Enforced by | What breaks if it goes |
+|---|---|---|
+| **Retraining is a batch job**, never on a request path | `training/jobs.py` — endpoints enqueue and return a job record | A live viewer's request blocks for minutes behind a model fit |
+| **Every model version passes a validation gate** before it can serve, and promotion stays deliberate | `models/registry.py` — refuses a worse score, and an implausibly good one as suspected leakage | A leaking or degraded model goes live silently |
+| **The regulation-transfer table is executable policy** | `features/transfer.py` — queried per row; an undeclared feature fails at import | A 2026 model quietly learns from cars that no longer exist |
+| **Live race predictions are gated off green** | `live/race_control.py` — classified, stored, flagged `is_gated` | A confident finishing position is shown for racing that is not happening |
+
+`regs_regime` is a field on every session, snapshot and model — never a
+hardcoded `"2026"` — so the next regulation reset does not require a rewrite. A
+model trained under one regime is refused at serve time under another.
 
 ## Layout
 
