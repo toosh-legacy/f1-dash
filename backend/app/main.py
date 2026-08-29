@@ -30,7 +30,6 @@ from app.db import projection_store
 from app.db.database import get_db, init_db
 from app.live.base import loops
 from app.live.broadcast import broadcaster
-from app.live import projection
 from app.live.qualifying_loop import QualifyingLoop
 from app.live.race_loop import RaceLoop
 from app.models import registry
@@ -380,7 +379,7 @@ def stop_live_loop(session_id: int) -> dict[str, Any]:
 # -- replays -----------------------------------------------------------------
 
 
-@app.get("/replays", tags=["replays"])
+@app.get("/replays", response_model=list[schemas.ReplayRoundOut], tags=["replays"])
 def list_replays(year: int | None = None, sprints: bool = True) -> list[dict[str, Any]]:
     """Every race that has already run, and whether its replay is built."""
     try:
@@ -440,6 +439,9 @@ def get_replay(session_key: int) -> FileResponse:
     )
 
 
+# The bundle and a projection are deep, wide payloads whose shape belongs to
+# the replay format rather than to the API; they are returned as-is rather than
+# mirrored in a schema that would have to be kept in step with every field.
 @app.get("/replays/{session_key}/projection", tags=["replays"])
 def replay_projection(
     session_key: int,
@@ -483,7 +485,11 @@ def evaluate_replay(session_key: int) -> dict[str, Any]:
     return jobs.submit("predict", None, run).as_dict()
 
 
-@app.get("/replays/{session_key}/predictions", tags=["replays"])
+@app.get(
+    "/replays/{session_key}/predictions",
+    response_model=schemas.ProjectionCoverageOut,
+    tags=["replays"],
+)
 def replay_prediction_coverage(
     session_key: int, db: DBSession = Depends(get_db)
 ) -> dict[str, Any]:
@@ -494,7 +500,11 @@ def replay_prediction_coverage(
     }
 
 
-@app.delete("/replays/{session_key}/predictions", tags=["replays"])
+@app.delete(
+    "/replays/{session_key}/predictions",
+    response_model=schemas.ClearedOut,
+    tags=["replays"],
+)
 def clear_replay_predictions(
     session_key: int, db: DBSession = Depends(get_db)
 ) -> dict[str, Any]:

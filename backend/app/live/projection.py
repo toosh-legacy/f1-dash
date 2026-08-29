@@ -21,6 +21,7 @@ interesting part: it usually means a strategy is about to pay off or fail.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from sqlalchemy import select
@@ -169,15 +170,62 @@ def _stops_owed(row: dict[str, Any], remaining: int) -> int:
 
 
 def _pit_loss(bundle: dict[str, Any], db: DBSession | None) -> float:
+    """This circuit's measured pit loss, or a neutral figure if it is unknown.
+
+    The replay names the circuit the way OpenF1 does and the database names it
+    the way FastF1 does, so the two are matched on normalised word stems rather
+    than on either spelling. A near-miss here would silently price every stop
+    wrongly, so a partial match has to be a whole word: "monza" may match
+    "autodromo nazionale monza", but "miami" must not match "miami gardens"
+    by way of a shared prefix on some other name.
+    """
     if db is None:
         return DEFAULT_PIT_LOSS_S
-    circuit_name = (bundle.get("session", {}).get("circuit") or "").lower()
-    if not circuit_name:
-        return DEFAULT_PIT_LOSS_S
-    for circuit in db.scalars(select(m.Circuit)).all():
-        if circuit.id in circuit_name or circuit_name.split()[0] in circuit.id:
-            return float(circuit.avg_pit_loss_s or DEFAULT_PIT_LOSS_S)
+    session = bundle.get("session", {})
+    circuits = db.scalars(select(m.Circuit)).all()
+
+    # The circuit's own name first. Only if that finds nothing is the country
+    # tried, which resolves the cases where the two sources disagree entirely
+    # -- OpenF1's "Monte Carlo" against a database that calls it Monaco -- and
+    # is a last resort because several rounds can share one.
+    for wanted in (
+        _words(session.get("circuit")) | _words(session.get("location")),
+        _words(session.get("country")),
+    ):
+        if not wanted:
+            continue
+        for circuit in circuits:
+            if wanted & (_words(circuit.id) | _words(circuit.name)):
+                return float(circuit.avg_pit_loss_s or DEFAULT_PIT_LOSS_S)
     return DEFAULT_PIT_LOSS_S
+
+
+#: Words that appear in circuit and event names across the calendar and so
+#: identify nothing. Without these, "Belgian Grand Prix" would match "Miami
+#: Grand Prix" on two words out of three.
+_GENERIC_NAME_WORDS = frozenset(
+    {
+        "grand", "prix", "gran", "premio", "circuit", "autodromo", "autodrome",
+        "international", "raceway", "park", "speedway", "street", "national",
+        "nazionale", "the", "and", "city",
+    }
+)
+
+
+def _words(value: str | None) -> set[str]:
+    """Identifying words in a circuit name, lowercased.
+
+    Two-letter fragments and the calendar's boilerplate are dropped; what is
+    left is the part that actually names a place -- "spa", "monza", "sakhir".
+    """
+    if not value:
+        return set()
+    tokens = re.split(r"[^a-z0-9]+", value.lower())
+    return {
+        token
+        for token in tokens
+        if len(token) > 2 and token not in _GENERIC_NAME_WORDS
+    }
 
 
 def _model_view(

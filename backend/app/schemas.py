@@ -162,3 +162,45 @@ class HealthOut(BaseModel):
     active_models: dict[str, int]
     live_loops: int
     pending_jobs: int
+
+
+class ReplayRoundOut(BaseModel):
+    """One race in the replay catalogue."""
+
+    session_key: int
+    meeting_key: int | None = None
+    name: str
+    session_type: str
+    circuit: str | None = None
+    country: str | None = None
+    location: str | None = None
+    date_start: str | None = None
+    year: int | None = None
+    cached: bool = Field(description="Whether the replay bundle has been built")
+    size_bytes: int | None = None
+
+
+class ProjectionRunOut(BaseModel):
+    """One evaluation pass over a replay, under one model version."""
+
+    model_version: int | None = Field(
+        default=None, description="Null when the pass ran with no active model"
+    )
+    laps: int
+    first_lap: int | None = None
+    last_lap: int | None = None
+    computed_at: str | None = None
+
+
+class ProjectionCoverageOut(BaseModel):
+    """What has already been evaluated for a replay."""
+
+    session_key: int
+    built: bool
+    active_model_version: int | None = None
+    runs: list[ProjectionRunOut] = []
+
+
+class ClearedOut(BaseModel):
+    session_key: int
+    cleared: int

@@ -1,22 +1,32 @@
 """Replay bundles: a completed session reconstructed for playback on the map.
 
-OpenF1 exposes a ``location`` feed -- roughly 3.7 samples a second of raw track
-X/Y per car -- which is enough to redraw a session from the outside: the circuit
-itself, every car moving around it, and the moments they peel into the pit lane.
+OpenF1 exposes a ``location`` feed of raw track X/Y per car, which is enough to
+redraw a session from the outside: the circuit itself, every car moving around
+it, and the moments they peel into the pit lane.
 
 Building one is expensive (one request per car, tens of thousands of samples
 each) and the result never changes once a session is over, so a bundle is built
 once as a background job and cached on disk as gzipped JSON. The dashboard then
 fetches a single file and plays it locally.
 
-Three things are derived rather than fetched:
+The feed is coarser than its sample rate suggests: a car's position updates
+roughly every 2.7 seconds, which at racing speed is a jump of some 250 metres
+and about thirty distinct points per lap. Nothing here is drawn from raw
+coordinates, because doing that cuts every corner. Instead:
 
-* **The circuit outline.** Taken from one car's fastest lap, which by definition
-  is a clean, complete, green-flag loop of the racing line.
-* **The pit lane.** Samples that sit too far from the racing line to be on it,
-  ordered by how far along the lap their nearest racing-line point is.
-* **Per-lap race state.** Position, rolling pace, tyre and stop count per car --
-  the inputs the prediction panel reasons over.
+* **The circuit outline** is reconstructed by folding every green lap of the
+  race onto a single lap -- the sampling clock and the lap clock are
+  independent, so across a race the same corner is caught from many different
+  points -- and then refined twice by re-placing each fix along the loop the
+  previous pass produced.
+* **The pit lane** is traced from the fixes around timed stops. Distance from
+  the racing line cannot find it on its own: a car running wide at a fast
+  corner is further off line than a car in the pits.
+* **Cars** are carried as *progress along* those paths rather than as
+  positions, so interpolating between two fixes moves a car through the corners
+  it actually drove, at the speed it drove them.
+* **Per-lap race state** -- position, rolling pace, tyre and stop count -- is
+  what the prediction panel reasons over.
 
 Coordinates stay in OpenF1's own units (tenths of a metre, origin arbitrary).
 The dashboard normalises them against the bundle's bounds, so no assumption
@@ -43,7 +53,7 @@ Progress = Callable[[str, dict[str, Any] | None], None]
 
 #: Bundle format version. Bumped when the on-disk shape changes so stale caches
 #: are rebuilt rather than misread.
-BUNDLE_VERSION = 4
+BUNDLE_VERSION = 5
 
 #: A sample further than this from the racing line is not on the racing line.
 #: OpenF1 units are roughly decimetres, so this is ~15 m -- wide enough to keep
@@ -55,7 +65,8 @@ PIT_LANE_MIN_DISTANCE = 150.0
 #: its last known point.
 SAMPLE_STALE_S = 20.0
 
-#: Spacing of the drawn circuit outline, in feed units (~2.5 m).
+#: A short distance in feed units (~2.5 m), used as the floor for spatial-index
+#: cell sizes so a degenerate path cannot produce a zero-sized grid.
 TRACK_POINT_SPACING = 25.0
 
 #: Vertices in the reconstructed circuit outline. Around 8 m apart on a normal
@@ -68,8 +79,16 @@ TRACK_POINTS = 600
 PIT_LANE_MAX_DISTANCE = 900.0
 
 #: How much of the approach to, and escape from, a timed stop counts as being
-#: in the pit lane. Wide enough to cover the entry and exit runs at both ends.
-PIT_APPROACH_S = 30.0
+#: in the pit lane. A stop is timestamped at the box, but the lane either side
+#: of it is most of what there is to draw, so the window is generous.
+PIT_APPROACH_S = 45.0
+
+#: Within a stop window the car is known to be in the pit lane, so tracing can
+#: accept fixes much closer to the racing line than :data:`PIT_LANE_MIN_DISTANCE`
+#: -- the lane runs alongside the track, and at Zandvoort or Monaco it runs very
+#: close indeed. The wider threshold is still what *classifies* a car as pitting
+#: during playback, where there is no stop record to lean on.
+PIT_TRACE_MIN_DISTANCE = 80.0
 
 #: A lap slower than this multiple of the session's quickest is an in-lap, an
 #: out-lap or a safety-car lap, and is not a picture of the racing line.
@@ -188,12 +207,6 @@ def catalogue(
         )
     entries.sort(key=lambda e: e.date_start or "", reverse=True)
     return entries
-
-
-def latest_race(year: int | None = None, **kwargs: Any) -> ReplayCatalogueEntry | None:
-    """The most recent race that has run -- what the main dashboard opens on."""
-    rounds = catalogue(year, **kwargs)
-    return rounds[0] if rounds else None
 
 
 # --------------------------------------------------------------------------
@@ -673,7 +686,7 @@ def _pit_lane(
             if not any(start <= moment <= end for start, end in spans):
                 continue
             _vertex, offset = grid.nearest((x, y))
-            if not PIT_LANE_MIN_DISTANCE <= offset <= PIT_LANE_MAX_DISTANCE:
+            if not PIT_TRACE_MIN_DISTANCE <= offset <= PIT_LANE_MAX_DISTANCE:
                 continue
             placed.append((_arc_position(line, arc, grid, (x, y)) / total, x, y))
 
@@ -716,26 +729,6 @@ def _rotate_to_gap(
     rotated = [((key - origin) % 1.0, x, y) for key, x, y in placed]
     rotated.sort(key=lambda p: p[0])
     return rotated
-
-
-def _decimate(
-    points: list[tuple[float, float]],
-    *,
-    min_step: float,
-    max_jump: float | None = None,
-) -> list[tuple[float, float]]:
-    """Drop samples closer together than ``min_step``; skip a big jump."""
-    out: list[tuple[float, float]] = []
-    for point in points:
-        if not out:
-            out.append(point)
-            continue
-        gap = _distance(out[-1], point)
-        if max_jump is not None and gap > max_jump:
-            continue
-        if gap >= min_step:
-            out.append(point)
-    return out
 
 
 class _SpatialIndex:
@@ -792,7 +785,12 @@ def _project(
             index, distance = track_grid.nearest((x, y))
             if pit_grid is not None and distance > PIT_LANE_MIN_DISTANCE:
                 pit_index, pit_distance = pit_grid.nearest((x, y))
-                if pit_distance < distance:
+                # Closer to the pit lane than to the track is not enough on its
+                # own: the drawn lane is a sparse path, and a car stopped in a
+                # gravel trap can be nearer one of its vertices than to the
+                # racing line without being in the pits at all. It has to be
+                # genuinely on the lane.
+                if pit_distance < distance and pit_distance <= PIT_LANE_MIN_DISTANCE:
                     samples.append((moment, float(pit_index), True))
                     previous = None  # rejoining the track resets wrap tracking
                     continue
@@ -1034,15 +1032,11 @@ def _rolling_pace(driver_laps: dict[int, dict[str, Any]], lap_number: int) -> fl
     return statistics.median(clean or window)
 
 
-def _lap_start_offsets(laps: list[dict[str, Any]], t0: float) -> list[tuple[float, int]]:
-    return _lap_timeline(laps, t0)
-
-
 def _positions_by_lap(
     positions: list[dict[str, Any]], laps: list[dict[str, Any]], t0: float
 ) -> dict[int, dict[int, int]]:
     """Order at the end of each lap, from the running position feed."""
-    timeline = _lap_start_offsets(laps, t0)
+    timeline = _lap_timeline(laps, t0)
     ordered = sorted(
         (
             (_parse_date(p.get("date")), p.get("driver_number"), p.get("position"))
@@ -1071,7 +1065,7 @@ def _positions_by_lap(
 def _gaps_by_lap(
     intervals: list[dict[str, Any]], laps: list[dict[str, Any]], t0: float
 ) -> dict[int, dict[int, float]]:
-    timeline = _lap_start_offsets(laps, t0)
+    timeline = _lap_timeline(laps, t0)
     out: dict[int, dict[int, float]] = {}
     current: dict[int, float] = {}
     rows = sorted(intervals, key=lambda r: str(r.get("date") or ""))

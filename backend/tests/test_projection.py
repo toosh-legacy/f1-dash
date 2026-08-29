@@ -135,3 +135,26 @@ class TestPitLoss:
 
     def test_an_unknown_circuit_falls_back(self, db, seeded):
         assert P._pit_loss(bundle(circuit="Nowhere"), db) == P.DEFAULT_PIT_LOSS_S
+
+    def test_the_two_sources_are_matched_on_the_naming_part(self, db, seeded):
+        """The replay names circuits as OpenF1 does, the database as FastF1 does."""
+        assert P._pit_loss(bundle(circuit="Silverstone Circuit"), db) == 20.5
+        assert P._pit_loss(bundle(circuit="", location="Silverstone"), db) == 20.5
+
+    def test_boilerplate_alone_is_not_a_match(self, db, seeded):
+        """Half the calendar is a "Grand Prix"; that identifies nothing."""
+        assert P._pit_loss(bundle(circuit="Belgian Grand Prix"), db) == P.DEFAULT_PIT_LOSS_S
+
+    def test_the_country_settles_a_disagreement_the_names_cannot(self, db, seeded):
+        """OpenF1 calls it Monte Carlo; a database seeded elsewhere calls it Monaco."""
+        db.add(
+            m.Circuit(
+                id="monaco",
+                name="Monaco Grand Prix",
+                type="street",
+                avg_pit_loss_s=19.0,
+            )
+        )
+        db.flush()
+        data = bundle(circuit="Monte Carlo", location="Monte Carlo", country="Monaco")
+        assert P._pit_loss(data, db) == 19.0

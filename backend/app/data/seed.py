@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DBSession
 
 from app.config import settings
-from app.data.fastf1_client import FastF1Client, FastF1Unavailable, circuit_id_from_event
+from app.data.fastf1_client import FastF1Client, FastF1Unavailable
 from app.data.openf1_client import OpenF1Client, OpenF1Error
 from app.db import models as m
 

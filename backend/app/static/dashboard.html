@@ -14,7 +14,6 @@
   --text: #e8eaed;
   --muted: #9aa0a6;
   --mustard: #e3b341;
-  --mustard-dim: #7a6222;
   --green: #35c46b;
   --amber: #f0b429;
   --red: #ef4b4b;
@@ -123,10 +122,11 @@ svg#map { display: block; width: 100%; height: min(62vh, 620px); }
   paint-order: stroke; stroke: #0b0c0e; stroke-width: 3.5; stroke-linejoin: round;
   pointer-events: none; }
 .car.pit .car-dot { opacity: .55; }
-.car.dim { opacity: .35; }
 .car-tag { font-size: 9.5px; font-weight: 700; fill: var(--amber); text-anchor: middle;
   paint-order: stroke; stroke: #0b0c0e; stroke-width: 3; }
-.car.selected .car-dot { stroke: #fff; stroke-width: 2; }
+.car.selected .car-dot { stroke: #fff; stroke-width: 2.5; }
+/* A selected car keeps its name whatever the traffic around it. */
+.selected .car-name { fill: #fff; }
 
 /* ---------- transport ---------- */
 .transport { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--line); }
@@ -240,6 +240,9 @@ footer b { color: #c6ccd3; font-weight: 600; }
             <path id="trackLine" /><path id="trackSurface" />
             <line id="startLine" />
             <g id="cars"></g>
+            <!-- Names ride above every dot: a name half-covered by the car
+                 behind is worse than no name at all. -->
+            <g id="carLabels"></g>
           </svg>
           <div class="empty" id="mapEmpty" hidden>No replay loaded.</div>
         </div>
@@ -530,7 +533,9 @@ function surnameOf(driver) {
 
 function buildCarLayer(drivers) {
   const layer = el("cars");
+  const labels = el("carLabels");
   layer.textContent = "";
+  labels.textContent = "";
   carNodes.clear();
   for (const driver of drivers) {
     const group = document.createElementNS(svgNS, "g");
@@ -556,18 +561,26 @@ function buildCarLayer(drivers) {
     tag.setAttribute("class", "car-tag");
     tag.setAttribute("dy", "-19");
 
-    group.append(dot, label, name, tag);
+    group.append(dot, label);
     group.addEventListener("click", () => selectCar(driver.number));
     layer.append(group);
-    carNodes.set(String(driver.number), { group, dot, label, name, tag });
+
+    const labelGroup = document.createElementNS(svgNS, "g");
+    labelGroup.append(name, tag);
+    labels.append(labelGroup);
+
+    carNodes.set(String(driver.number), { group, labelGroup, dot, label, name, tag });
   }
 }
 
 function selectCar(number) {
   player.selected = player.selected === number ? null : number;
   for (const [key, node] of carNodes) {
-    node.group.classList.toggle("selected", key === String(player.selected));
+    const chosen = key === String(player.selected);
+    node.group.classList.toggle("selected", chosen);
+    node.labelGroup.classList.toggle("selected", chosen);
   }
+  if (player.bundle) renderFrame(player.time);
 }
 
 /** Position along the racing line, as a point. Fractional and wrapping. */
@@ -605,8 +618,13 @@ function renderFrame(time) {
   const placed = [];
   for (const [number, node] of carNodes) {
     const here = frame.cars[number];
-    if (here === undefined) { node.group.setAttribute("visibility", "hidden"); continue; }
+    if (here === undefined) {
+      node.group.setAttribute("visibility", "hidden");
+      node.labelGroup.setAttribute("visibility", "hidden");
+      continue;
+    }
     node.group.setAttribute("visibility", "visible");
+    node.labelGroup.setAttribute("visibility", "visible");
 
     let x, y, inPit = Array.isArray(here);
     if (inPit) {
@@ -659,7 +677,7 @@ function hideCrowdedNames(placed) {
     }
     node.name.setAttribute(
       "visibility",
-      crowded && !node.group.classList.contains("selected") ? "hidden" : "visible"
+      crowded && !node.labelGroup.classList.contains("selected") ? "hidden" : "visible"
     );
   }
 }

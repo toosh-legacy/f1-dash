@@ -202,7 +202,7 @@ scripts/      smoke.js (API + websocket) · replay-check.js (replay geometry)
 ## Tests
 
 ```bash
-cd backend && .venv/Scripts/python -m pytest        # 124 tests, no network required
+cd backend && .venv/Scripts/python -m pytest        # 127 tests, no network required
 ```
 
 Coverage focuses on the parts that are expensive to get wrong: the transfer table, feature
