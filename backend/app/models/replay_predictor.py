@@ -63,10 +63,17 @@ def projection_for(
     lap: int,
     *,
     use_cache: bool = True,
+    model_id: int | None = None,
 ) -> dict[str, Any]:
-    """One lap's projected finishing order, from cache where possible."""
+    """One lap's projected finishing order, from cache where possible.
+
+    ``model_id`` scores the lap under a model that is not the active one. The
+    cache is keyed by model version, so a challenger's answers are stored
+    beside the incumbent's rather than displacing them, and both can be scored
+    against the same classification afterwards.
+    """
     session_key = bundle.get("session", {}).get("session_key")
-    version = active_model_version(db)
+    version = model_id if model_id is not None else active_model_version(db)
 
     if use_cache and session_key is not None:
         cached = projection_store.read(db, int(session_key), lap, version)
@@ -74,14 +81,19 @@ def projection_for(
             cached["cached"] = True
             return cached
 
-    computed = projection.project_finish(bundle, lap, db=db)
+    computed = projection.project_finish(bundle, lap, db=db, model_id=model_id)
     computed["cached"] = False
     if session_key is not None and computed.get("entries"):
         projection_store.write(db, int(session_key), lap, computed, version)
     return computed
 
 
-def run(session_key: int, progress: Progress | None = None) -> dict[str, Any]:
+def run(
+    session_key: int,
+    progress: Progress | None = None,
+    *,
+    model_id: int | None = None,
+) -> dict[str, Any]:
     """Evaluate every lap of a replay and cache the results.
 
     Safe to call from a job thread: it owns its own database sessions and
@@ -106,7 +118,7 @@ def run(session_key: int, progress: Progress | None = None) -> dict[str, Any]:
     reused = 0
     version: int | None = None
     with session_scope() as db:
-        version = active_model_version(db)
+        version = model_id if model_id is not None else active_model_version(db)
 
     # One transaction per chunk of laps: a long single transaction would hold a
     # write lock across the whole pass, and the point of the cache is that the
@@ -116,7 +128,7 @@ def run(session_key: int, progress: Progress | None = None) -> dict[str, Any]:
             if projection_store.read(db, session_key, lap, version) is not None:
                 reused += 1
             else:
-                result = projection.project_finish(bundle, lap, db=db)
+                result = projection.project_finish(bundle, lap, db=db, model_id=model_id)
                 if result.get("entries"):
                     projection_store.write(db, session_key, lap, result, version)
                     computed += 1

@@ -15,6 +15,7 @@ from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import select
@@ -28,6 +29,7 @@ from app.data.fastf1_client import FastF1Client, FastF1Unavailable
 from app.db import models as m
 from app.db import projection_store
 from app.db import replay_store
+from app.db import session_index
 from app.db.database import get_db, init_db, session_scope
 from app.live.base import loops
 from app.live.broadcast import broadcaster
@@ -46,6 +48,10 @@ logging.basicConfig(
 log = logging.getLogger("app.main")
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+#: A live loop that has not completed a poll in this long is not keeping up
+#: with a session, whatever its thread says about being alive.
+STALE_POLL_S = 120.0
 
 
 @asynccontextmanager
@@ -91,14 +97,29 @@ def health(db: DBSession = Depends(get_db)) -> schemas.HealthOut:
             select(m.PredictionModel).where(m.PredictionModel.is_active.is_(True))
         ).all()
     }
+    statuses = loops.statuses()
+    trained = db.scalars(
+        select(m.PredictionModel).order_by(m.PredictionModel.trained_at.desc()).limit(1)
+    ).first()
+    stale = [s for s in statuses if (s.get("last_poll_age_s") or 0) > STALE_POLL_S]
+    failing = [s for s in statuses if (s.get("consecutive_errors") or 0) >= 3]
+
     return schemas.HealthOut(
-        status="ok",
+        status="degraded" if (stale or failing) else "ok",
         regs_regime=settings.CURRENT_REGS_REGIME,
         season=settings.CURRENT_SEASON,
         database=settings.DATABASE_URL.split("://")[0],
         active_models=active,
-        live_loops=len(loops.statuses()),
+        live_loops=len(statuses),
         pending_jobs=jobs.pending_count(),
+        live=statuses,
+        jobs=jobs.stats(),
+        caches={
+            "replay_bundles": replay.bundle_cache_stats(),
+            "scores": calibration.cache_stats(),
+            "session_index": session_index.status(db),
+        },
+        last_trained_at=trained.trained_at.isoformat() if trained and trained.trained_at else None,
     )
 
 
@@ -450,9 +471,15 @@ def stop_live_loop(session_id: int) -> dict[str, Any]:
 def list_replays(
     year: int | None = None, sprints: bool = True, db: DBSession = Depends(get_db)
 ) -> list[dict[str, Any]]:
-    """Every race that has already run, and whether its replay is built."""
+    """Every race that has already run, and whether its replay is built.
+
+    Served from the local session index rather than from OpenF1. The index
+    refreshes itself behind the response when it goes stale, so opening the
+    dashboard does not wait on a third party -- see
+    :mod:`app.db.session_index`.
+    """
     try:
-        rounds = replay.catalogue(year, include_sprints=sprints)
+        rounds = session_index.catalogue(db, year, include_sprints=sprints)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"replay catalogue unavailable: {exc}")
 
@@ -521,6 +548,40 @@ def get_replay(session_key: int) -> FileResponse:
     )
 
 
+@app.get("/replays/{session_key}/meta", tags=["replays"])
+def get_replay_meta(session_key: int) -> Response:
+    """Everything about a replay except the playback frames.
+
+    The circuit, the drivers, the per-lap order, the race-control log, the
+    overtakes and the classification: 36 KB against the bundle's 475 KB. A
+    dashboard can draw the race from this and fetch the frames behind it,
+    rather than showing nothing until half a megabyte has arrived.
+    """
+    return _bundle_part_response(session_key, "meta")
+
+
+@app.get("/replays/{session_key}/frames", tags=["replays"])
+def get_replay_frames(session_key: int) -> Response:
+    """Just the playback frames -- the other 439 KB."""
+    return _bundle_part_response(session_key, "frames")
+
+
+def _bundle_part_response(session_key: int, part: str) -> Response:
+    if not _ensure_local(session_key):
+        raise HTTPException(
+            status_code=404,
+            detail=f"replay for session {session_key} is not built yet; POST to /replays/{session_key}/build",
+        )
+    data = replay.bundle_part(session_key, part)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"replay for session {session_key} is not built yet")
+    return Response(
+        content=data,
+        media_type="application/json",
+        headers={"content-encoding": "gzip", "cache-control": "public, max-age=86400"},
+    )
+
+
 # The bundle and a projection are deep, wide payloads whose shape belongs to
 # the replay format rather than to the API; they are returned as-is rather than
 # mirrored in a schema that would have to be kept in step with every field.
@@ -536,7 +597,20 @@ def replay_projection(
     Served from the projection cache when the lap has already been evaluated
     under the active model; computed and stored on a miss. ``fresh=true``
     recomputes regardless, which is how a cached answer gets checked.
+
+    A cache hit answers without the bundle. The session key is in the path, the
+    cache is keyed by it, and the stored row is the whole response -- so the
+    common case is one indexed row read rather than unzipping and parsing a
+    race to reach a value that was already computed.
     """
+    if not fresh:
+        cached = projection_store.read(
+            db, session_key, lap, replay_predictor.active_model_version(db)
+        )
+        if cached is not None:
+            cached["cached"] = True
+            return cached
+
     _ensure_local(session_key)
     bundle = replay.load_bundle(session_key)
     if bundle is None:
@@ -550,11 +624,16 @@ def replay_projection(
 
 
 @app.post("/replays/{session_key}/predict", response_model=schemas.JobOut, tags=["replays"])
-def evaluate_replay(session_key: int) -> dict[str, Any]:
-    """Run the prediction model over every lap of a replay, and cache it.
+def evaluate_replay(session_key: int, model_id: int | None = None) -> dict[str, Any]:
+    """Run a prediction model over every lap of a replay, and cache it.
 
     A batch pass, on the same background pool as retraining: after it, the
     prediction panel reads rows instead of running models.
+
+    ``model_id`` evaluates under a model that is not the active one. Its
+    answers are stored beside the incumbent's rather than replacing them --
+    the cache is keyed by model version -- so ``GET /models/compare`` can then
+    score the two against the same finishing order.
     """
     if not _ensure_local(session_key):
         raise HTTPException(
@@ -563,7 +642,7 @@ def evaluate_replay(session_key: int) -> dict[str, Any]:
         )
 
     def run(progress: jobs.ProgressReporter) -> dict[str, Any]:
-        return replay_predictor.run(session_key, progress)
+        return replay_predictor.run(session_key, progress, model_id=model_id)
 
     return jobs.submit("predict", None, run).as_dict()
 
@@ -623,6 +702,18 @@ def replay_accuracy(session_key: int, db: DBSession = Depends(get_db)) -> dict[s
     place against simply reading the running order.
     """
     return calibration.score_replay(db, session_key)
+
+
+@app.get("/models/compare", tags=["models"])
+def compare_models(db: DBSession = Depends(get_db)) -> dict[str, Any]:
+    """Score every evaluated model against the others on the laps they share.
+
+    Promotion is deliberate here, and this is the evidence for it: run a
+    challenger over a replay with ``POST /replays/{key}/predict?model_id=N``,
+    then read this to see whether it was actually closer to the finishing order
+    than the model already serving.
+    """
+    return calibration.compare_models(db)
 
 
 @app.get("/predictions/accuracy", tags=["replays"])

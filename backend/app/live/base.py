@@ -11,9 +11,11 @@ API will hiccup.
 from __future__ import annotations
 
 import logging
+import statistics
 import threading
 import time
 from abc import ABC, abstractmethod
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -39,6 +41,36 @@ class LoopStatus:
     started_at: float | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
+    #: When the last poll finished, and when one last produced an update.
+    #: The interesting failure is not a loop that has stopped -- that is
+    #: obvious -- but one that is still turning and has not heard anything
+    #: useful for ten minutes. Age since the last poll is what shows that.
+    last_poll_at: float | None = None
+    last_publish_at: float | None = None
+
+    #: How long recent polls took, in milliseconds. The whole claim of this
+    #: system is that live inference never waits on training, so the number
+    #: that has to be visible is how long a live tick actually takes.
+    poll_ms: deque[float] = field(default_factory=lambda: deque(maxlen=120))
+
+    def record_poll(self, elapsed_ms: float) -> None:
+        self.poll_ms.append(elapsed_ms)
+        self.last_poll_at = time.monotonic()
+
+    def _percentiles(self) -> dict[str, float | None]:
+        if not self.poll_ms:
+            return {"p50_ms": None, "p95_ms": None, "max_ms": None}
+        ordered = sorted(self.poll_ms)
+        index = max(0, min(len(ordered) - 1, int(round(0.95 * (len(ordered) - 1)))))
+        return {
+            "p50_ms": round(statistics.median(ordered), 1),
+            "p95_ms": round(ordered[index], 1),
+            "max_ms": round(ordered[-1], 1),
+        }
+
+    def _age(self, stamp: float | None) -> float | None:
+        return round(time.monotonic() - stamp, 1) if stamp else None
+
     def as_dict(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
@@ -51,6 +83,9 @@ class LoopStatus:
             "last_error": self.last_error,
             "last_context": self.last_context,
             "uptime_s": round(time.monotonic() - self.started_at, 1) if self.started_at else None,
+            "last_poll_age_s": self._age(self.last_poll_at),
+            "last_publish_age_s": self._age(self.last_publish_at),
+            "poll": self._percentiles(),
             **self.extra,
         }
 
@@ -109,7 +144,9 @@ class LiveLoop(ABC):
         while not self._stop.is_set():
             try:
                 self.status.polls += 1
+                started = time.perf_counter()
                 self.poll_once()
+                self.status.record_poll((time.perf_counter() - started) * 1000.0)
                 self.status.consecutive_errors = 0
                 backoff = self.poll_interval_s
             except OpenF1Error as exc:
@@ -129,6 +166,7 @@ class LiveLoop(ABC):
     def publish(self, message: dict[str, Any]) -> None:
         broadcaster.publish_threadsafe(self.session_id, message)
         self.status.updates_published += 1
+        self.status.last_publish_at = time.monotonic()
 
     @abstractmethod
     def poll_once(self) -> None:

@@ -42,6 +42,62 @@ _MESSAGE_PATTERNS: list[tuple[re.Pattern[str], RC]] = [
 _ENDING = re.compile(r"ENDING|IN THIS LAP|DEPLOYED\s*ENDS|CLEAR|WITHDRAWN", re.I)
 
 
+# -- severity ----------------------------------------------------------------
+# A race carries a few hundred race-control messages and a viewer wants to be
+# told about perhaps forty of them. The rest is housekeeping: a blue flag for a
+# car about to be lapped, and the per-sector yellow-then-clear chatter that
+# follows every incident. Which is which is a property of the message, not of
+# the client reading it, so it is decided once -- here -- and carried by both
+# the replay bundle and the live socket. Every consumer then agrees.
+
+#: Worth logging, never worth interrupting anyone for.
+SEVERITY_HOUSEKEEPING = "housekeeping"
+#: Something happened, and it is not obviously about a car or the session.
+SEVERITY_NOTE = "note"
+#: Something happened to a car: a penalty, an investigation, a retirement.
+SEVERITY_INCIDENT = "incident"
+#: Something happened to the session: a flag, a safety car, a start or a stop.
+SEVERITY_SESSION = "session"
+
+_SEV_HOUSEKEEPING = re.compile(r"WAVED\s+BLUE\s+FLAG|IN\s+TRACK\s+SECTOR", re.I)
+
+_SEV_SESSION = re.compile(
+    r"CHEQUERED|RED\s+FLAG|SAFETY\s+CAR|\bVSC\b|VIRTUAL\s+SAFETY|"
+    r"SESSION\s+(STARTED|ABORTED|SUSPENDED|RESUMED|STOPPED|WILL)|"
+    r"RACE\s+(START|SUSPENDED|RESUM|WILL\s+NOT)|"
+    r"FORMATION\s+LAP|STANDING\s+START|ROLLING\s+START|GREEN\s+LIGHT|"
+    r"PIT\s+(EXIT|ENTRY|LANE)\s+(OPEN|CLOSED)|OVERTAKE\s+(ENABLED|DISABLED)|"
+    r"\bDRS\b|TRACK\s+CLEAR",
+    re.I,
+)
+
+_SEV_INCIDENT = re.compile(
+    r"PENALT|INVESTIGAT|\bNOTED\b|DELETED|WARNING|RETIRED|INCIDENT|"
+    r"TRACK\s+LIMITS|IMPEDING|UNSAFE|BLACK\s+AND|STOP\s*/?\s*GO|"
+    r"DRIVE\s+THROUGH|REPRIMAND|DISQUALIF|CAUSING\s+A\s+COLLISION",
+    re.I,
+)
+
+
+def severity_of(text: str | None, event_type: RC | None = None) -> str:
+    """How much a race-control message is worth interrupting a viewer for.
+
+    Housekeeping is tested first on purpose: "YELLOW IN TRACK SECTOR 12" is
+    sector chatter whatever flag it carries, and there are fifty of them in a
+    race where there is one red flag.
+    """
+    blob = str(text or "")
+    if _SEV_HOUSEKEEPING.search(blob):
+        return SEVERITY_HOUSEKEEPING
+    if _SEV_SESSION.search(blob):
+        return SEVERITY_SESSION
+    if _SEV_INCIDENT.search(blob):
+        return SEVERITY_INCIDENT
+    if event_type in {RC.RED_FLAG, RC.SAFETY_CAR, RC.VSC}:
+        return SEVERITY_SESSION
+    return SEVERITY_NOTE
+
+
 @dataclass
 class GateState:
     """Current race-control state for one session."""

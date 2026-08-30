@@ -163,6 +163,15 @@ class HealthOut(BaseModel):
     live_loops: int
     pending_jobs: int
 
+    # Operational detail. The counts above say what is configured; these say
+    # whether it is working -- how long since each live loop last heard
+    # anything, how long a live inference tick takes, and how deep the
+    # background queue that training runs on is.
+    live: list[dict[str, Any]] = Field(default_factory=list)
+    jobs: dict[str, Any] = Field(default_factory=dict)
+    caches: dict[str, Any] = Field(default_factory=dict)
+    last_trained_at: str | None = None
+
 
 class ReplayRoundOut(BaseModel):
     """One race in the replay catalogue."""

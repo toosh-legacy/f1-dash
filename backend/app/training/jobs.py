@@ -130,6 +130,25 @@ def shutdown(wait: bool = False) -> None:
     _executor.shutdown(wait=wait, cancel_futures=not wait)
 
 
+def stats() -> dict[str, Any]:
+    """What the background pool is doing -- reported by ``/health``.
+
+    Rule 1 says a request path never trains. What makes that checkable from
+    outside is seeing the training work queued somewhere else, and how deep
+    that queue is.
+    """
+    recent = jobs.recent(10)
+    running = [r for r in recent if r.status == "running"]
+    finished = [r for r in recent if r.finished_at]
+    return {
+        "pending": pending_count(),
+        "running": len(running),
+        "workers": _executor._max_workers,
+        "recent": [r.as_dict() for r in recent[:5]],
+        "last_finished": finished[0].as_dict() if finished else None,
+    }
+
+
 def pending_count() -> int:
     return sum(1 for j in jobs.recent(50) if j.status in {"queued", "running"})
 

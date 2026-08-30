@@ -67,9 +67,16 @@ class RaceLoop(LiveLoop):
             return
         self._last_lap = lap
         self.status.last_context = f"lap_{lap}"
+        order = _running_order(states)
         predictions = self.predict_lap(lap, states, state)
-        if predictions:
-            self.publish(race_update(lap, predictions, is_gated=state.is_gated))
+        if predictions or order:
+            self.publish(race_update(
+                lap, predictions, is_gated=state.is_gated, order=order,
+            ))
+
+    # -- running order -----------------------------------------------------
+
+    # (see _running_order below)
 
     # -- race control ------------------------------------------------------
     def check_race_control(self) -> rc.GateState:
@@ -98,7 +105,12 @@ class RaceLoop(LiveLoop):
                 state = rc.GateState(event_type=event_type, lap_number=lap)
                 log.info("session %s race control -> %s (lap %s)", self.session_id, event_type.value, lap)
                 # Immediate push; do not wait for the next lap update.
-                self.publish(race_control_message(event_type.value, lap))
+                text = str(message.get("message", ""))
+                self.publish(race_control_message(
+                    event_type.value, lap,
+                    message=text,
+                    severity=rc.severity_of(text, event_type),
+                ))
 
         return state
 
@@ -205,3 +217,30 @@ def start(session_id: int, session_key: int, **kwargs: Any) -> RaceLoop:
     from app.live.base import loops
 
     return loops.start(RaceLoop(session_id, session_key, **kwargs))  # type: ignore[return-value]
+
+
+def _running_order(states: dict[int, "LiveDriverState"]) -> list[dict[str, Any]]:
+    """The live field, in the shape the replay bundle stores a lap in.
+
+    Deliberately the same keys as ``bundle["laps"][n]``: a dashboard that can
+    draw a replayed lap can then draw a live one with no second code path, and
+    the shape is exercised on every replay rather than only during a session.
+    """
+    rows: list[dict[str, Any]] = []
+    for number, state in states.items():
+        if state.position is None:
+            continue
+        rows.append(
+            {
+                "number": number,
+                "position": state.position,
+                "gap_to_leader_s": state.gap_to_leader_s,
+                "interval_s": state.interval_s,
+                "lap_time_s": state.last_lap_time_s,
+                "compound": state.compound,
+                "tyre_age": state.tyre_age_laps,
+                "stops": max((state.stint_number or 1) - 1, 0),
+            }
+        )
+    rows.sort(key=lambda row: row["position"])
+    return rows

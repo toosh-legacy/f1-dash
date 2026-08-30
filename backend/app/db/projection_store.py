@@ -31,6 +31,24 @@ from app.db import models as m
 
 log = logging.getLogger(__name__)
 
+#: Bumped whenever a stored projection changes.
+#:
+#: Scoring the corpus reads every stored projection of every replay and folds
+#: them into a handful of averages -- half a second of work for an answer that
+#: only moves when a projection is written or dropped. Callers memoise that
+#: answer against this number, so their cache is exact rather than timed: it
+#: cannot serve a stale figure, and it never expires while nothing has changed.
+_generation = 0
+
+
+def generation() -> int:
+    return _generation
+
+
+def _touch() -> None:
+    global _generation
+    _generation += 1
+
 
 def read(
     db: DBSession,
@@ -85,6 +103,7 @@ def write(
         db.add(existing)
     existing.payload = payload
     db.flush()
+    _touch()
 
 
 def coverage(db: DBSession, session_key: int) -> dict[str, Any]:
@@ -124,4 +143,5 @@ def clear(db: DBSession, session_key: int | None = None, model_version: int | No
         statement = statement.where(m.ReplayProjection.model_version == model_version)
     removed = db.execute(statement).rowcount or 0
     log.info("cleared %s cached projections", removed)
+    _touch()
     return removed

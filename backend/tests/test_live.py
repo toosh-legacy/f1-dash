@@ -94,11 +94,14 @@ class TestMessageShapes:
             "lap_number": 23,
             "is_gated": False,
             "predictions": [{"driver_id": "ABC"}],
+            "order": [],
         }
 
     def test_race_control_message_shape(self):
-        assert race_control("safety_car", 24) == {
+        assert race_control("safety_car", 24, message="SAFETY CAR DEPLOYED") == {
             "type": "race_control",
+            "message": "SAFETY CAR DEPLOYED",
+            "severity": "session",
             "event_type": "safety_car",
             "lap_number": 24,
         }

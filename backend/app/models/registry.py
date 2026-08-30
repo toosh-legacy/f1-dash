@@ -113,6 +113,30 @@ def load_active(
     return cached, record
 
 
+def load_by_id(
+    db: DBSession, model_id: int
+) -> tuple[TabularModel, m.PredictionModel] | None:
+    """Load one specific model, active or not.
+
+    The gate decides whether a model is fit to serve; it cannot decide whether
+    it is *better* than the one already serving, because that is a question
+    about races rather than about a validation split. Answering it means being
+    able to run a model that is not the active one over the same laps, which is
+    what this is for. It deliberately does not check the regime the way
+    :func:`load_active` does -- comparing a model against the regime it was
+    trained for is exactly the comparison worth making.
+    """
+    record = db.get(m.PredictionModel, model_id)
+    if record is None:
+        return None
+    key = (record.model_type, record.version)
+    cached = _loaded.get(key)
+    if cached is None:
+        cached = MODEL_CLASSES[record.model_type].load(Path(record.artifact_path))
+        _loaded[key] = cached
+    return cached, record
+
+
 def clear_model_cache() -> None:
     _loaded.clear()
 

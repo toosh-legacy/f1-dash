@@ -114,6 +114,7 @@ def project_finish(
     lap: int,
     *,
     db: DBSession | None = None,
+    model_id: int | None = None,
 ) -> dict[str, Any]:
     """Projected finishing order at ``lap``, with the reasoning behind it."""
     rows = bundle.get("laps", {}).get(str(lap)) or []
@@ -180,7 +181,7 @@ def project_finish(
     model_note = None
     if db is not None:
         try:
-            model_note = _model_view(db, bundle, lap, entries)
+            model_note = _model_view(db, bundle, lap, entries, model_id)
         except Exception as exc:  # the panel must survive a missing model
             log.warning("model projection unavailable: %s", exc)
             model_note = {"available": False, "reason": str(exc)}
@@ -368,18 +369,28 @@ def _model_view(
     bundle: dict[str, Any],
     lap: int,
     entries: list[dict[str, Any]],
+    model_id: int | None = None,
 ) -> dict[str, Any]:
-    """Run the trained finish-position model over the same lap, if one is live."""
+    """Run a trained finish-position model over the same lap, if one is live.
+
+    ``model_id`` names a specific model rather than the active one, which is
+    how a challenger is scored against the incumbent on identical input.
+    """
     session = resolve_db_session(db, bundle)
     if session is None:
         return {"available": False, "reason": "session not in the database"}
 
-    active = registry.load_active(
-        db, m.ModelType.RACE_FINISH_POSITION.value, regs_regime=session.regs_regime
-    )
-    if active is None:
+    if model_id is not None:
+        chosen = registry.load_by_id(db, model_id)
+        if chosen is None:
+            return {"available": False, "reason": f"no model with id {model_id}"}
+    else:
+        chosen = registry.load_active(
+            db, m.ModelType.RACE_FINISH_POSITION.value, regs_regime=session.regs_regime
+        )
+    if chosen is None:
         return {"available": False, "reason": "no active race-finish model"}
-    model, record = active
+    model, record = chosen
 
     drivers = {
         driver.driver_number: driver

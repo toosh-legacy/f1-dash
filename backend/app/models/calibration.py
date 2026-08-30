@@ -25,13 +25,14 @@ from __future__ import annotations
 
 import logging
 import statistics
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DBSession
 
 from app.data import replay
 from app.db import models as m
+from app.db import projection_store
 
 log = logging.getLogger(__name__)
 
@@ -58,8 +59,43 @@ def stage_for(lap: int, total_laps: int) -> str | None:
     return STAGES[-1][0]
 
 
+#: Memoised scores, keyed by what they were computed from.
+#:
+#: The inputs are the stored projections and the replay bundles they are scored
+#: against, and both announce their own changes -- so the key is those two
+#: generation numbers alongside the arguments. Nothing here expires on a timer,
+#: because nothing here goes stale on a timer.
+_SCORE_CACHE: dict[Any, tuple[tuple[int, int], Any]] = {}
+_SCORE_CACHE_MAX = 64
+
+
+def _memo(key: Any, compute: Callable[[], Any]) -> Any:
+    stamp = (projection_store.generation(), replay.bundle_generation())
+    hit = _SCORE_CACHE.get(key)
+    if hit is not None and hit[0] == stamp:
+        return hit[1]
+    value = compute()
+    if len(_SCORE_CACHE) >= _SCORE_CACHE_MAX:
+        _SCORE_CACHE.clear()
+    _SCORE_CACHE[key] = (stamp, value)
+    return value
+
+
+def cache_stats() -> dict[str, Any]:
+    """What the score cache is holding -- reported by ``/health``."""
+    return {
+        "entries": len(_SCORE_CACHE),
+        "projection_generation": projection_store.generation(),
+        "bundle_generation": replay.bundle_generation(),
+    }
+
+
 def score_replay(db: DBSession, session_key: int) -> dict[str, Any]:
     """Score every evaluated lap of one replay against its classification."""
+    return _memo(("replay", int(session_key)), lambda: _score_replay(db, session_key))
+
+
+def _score_replay(db: DBSession, session_key: int) -> dict[str, Any]:
     bundle = replay.load_bundle(session_key)
     if bundle is None:
         return {"session_key": session_key, "scored_laps": 0, "reason": "replay not built"}
@@ -108,8 +144,14 @@ def summary(db: DBSession, session_keys: list[int] | None = None) -> dict[str, A
     """Scores across every replay that has been evaluated.
 
     This is what the prediction panel quotes back to a viewer: at this stage of
-    a race, this is how far out the projection has typically been.
+    a race, this is how far out the projection has typically been. The panel
+    asks on every render, so the answer is memoised.
     """
+    key = ("summary", tuple(sorted(session_keys)) if session_keys else None)
+    return _memo(key, lambda: _summary(db, session_keys))
+
+
+def _summary(db: DBSession, session_keys: list[int] | None = None) -> dict[str, Any]:
     keys = session_keys or [
         key
         for (key,) in db.execute(
@@ -139,6 +181,77 @@ def summary(db: DBSession, session_keys: list[int] | None = None) -> dict[str, A
         "by_stage": _by_stage(laps),
         "overall": _means(laps),
         "measure": "mean absolute error, in finishing positions",
+    }
+
+
+def compare_models(db: DBSession) -> dict[str, Any]:
+    """Every evaluated model, scored on the laps they have in common.
+
+    The validation gate asks whether a model is fit to serve. This asks the
+    question that actually decides a promotion: on the same races, at the same
+    laps, was the challenger closer to the finishing order than the incumbent?
+
+    Only laps where both models produced an answer are counted -- a model that
+    happens to have been run on an easier subset of laps would otherwise look
+    better for having done less.
+    """
+    return _memo(("compare",), lambda: _compare_models(db))
+
+
+def _compare_models(db: DBSession) -> dict[str, Any]:
+    keys = [
+        key
+        for (key,) in db.execute(
+            select(m.ReplayProjection.openf1_session_key).distinct()
+        ).all()
+    ]
+
+    # lap -> version -> scored row
+    per_lap: dict[tuple[int, int], dict[Any, dict[str, Any]]] = {}
+    for key in keys:
+        scored = score_replay(db, key)
+        for lap in scored.get("laps", []):
+            per_lap.setdefault((key, lap["lap"]), {})[lap.get("model_version")] = lap
+
+    versions = sorted(
+        {version for answers in per_lap.values() for version in answers},
+        key=lambda v: (v is None, v),
+    )
+    shared = [
+        answers for answers in per_lap.values() if len(answers) == len(versions)
+    ] if len(versions) > 1 else list(per_lap.values())
+
+    active = db.scalar(
+        select(m.PredictionModel.id).where(
+            m.PredictionModel.model_type == m.ModelType.RACE_FINISH_POSITION.value,
+            m.PredictionModel.is_active.is_(True),
+        )
+    )
+
+    rows = []
+    for version in versions:
+        laps = [answers[version] for answers in shared if version in answers]
+        if not laps:
+            continue
+        rows.append(
+            {
+                "model_version": version,
+                "is_active": version == active,
+                "scored_laps": len(laps),
+                **_means(laps),
+                "by_stage": _by_stage(laps),
+            }
+        )
+
+    ranked = sorted(
+        (r for r in rows if r.get("model") is not None), key=lambda r: r["model"]
+    )
+    return {
+        "models": rows,
+        "comparable_laps": len(shared),
+        "best_model_version": ranked[0]["model_version"] if ranked else None,
+        "active_model_version": active,
+        "measure": "mean absolute error, in finishing positions, on laps every model answered",
     }
 
 

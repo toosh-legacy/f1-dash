@@ -39,6 +39,8 @@ import json
 import logging
 import math
 import statistics
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -217,17 +219,176 @@ def catalogue(
 # --------------------------------------------------------------------------
 # Loading
 # --------------------------------------------------------------------------
-def load_bundle(session_key: int) -> dict[str, Any] | None:
+#: Parsed bundles, least recently used first.
+#:
+#: A race is half a megabyte of gzip and rather more once parsed, and reading
+#: one takes about a third of a second. Scrubbing a replay asks about the same
+#: race over and over -- a projection per lap, seventy laps -- and each of those
+#: was re-reading and re-parsing the identical file. This cache is deliberately
+#: small: it is here so a burst about one race reads the file once, not to hold
+#: a season in memory.
+_BUNDLE_CACHE: "OrderedDict[int, dict[str, Any]]" = OrderedDict()
+_BUNDLE_LOCK = threading.Lock()
+BUNDLE_CACHE_SIZE = 3
+
+#: Serialised slices of a bundle, keyed by ``(session_key, part)``.
+#:
+#: The whole bundle is 475 KB gzipped and 439 KB of that is frames. Everything
+#: a dashboard needs to draw the circuit, fill the running order and name the
+#: race is in the other 36 KB -- so a client that fetches the two separately can
+#: put a race on screen from a payload thirteen times smaller, and stream the
+#: playback data behind it. Re-encoding either is not free, so the encoded bytes
+#: are kept rather than the work repeated.
+_PART_CACHE: "OrderedDict[tuple[int, str], bytes]" = OrderedDict()
+PART_CACHE_SIZE = 8
+
+
+#: Bumped whenever a bundle on disk changes, so anything derived from a bundle
+#: can tell its answer is stale without having to compare the bundle itself.
+_bundle_generation = 0
+
+
+def bundle_generation() -> int:
+    return _bundle_generation
+
+
+def forget_bundle(session_key: int | None = None) -> None:
+    """Drop cached parses. Called wherever a bundle file is written."""
+    global _bundle_generation
+    _bundle_generation += 1
+    with _BUNDLE_LOCK:
+        if session_key is None:
+            _BUNDLE_CACHE.clear()
+            _PART_CACHE.clear()
+        else:
+            _BUNDLE_CACHE.pop(session_key, None)
+            for part in ("meta", "frames"):
+                _PART_CACHE.pop((session_key, part), None)
+
+
+def bundle_cache_stats() -> dict[str, Any]:
+    """What the cache is holding -- reported by ``/health``."""
+    with _BUNDLE_LOCK:
+        return {
+            "held": len(_BUNDLE_CACHE),
+            "capacity": BUNDLE_CACHE_SIZE,
+            "session_keys": list(_BUNDLE_CACHE),
+        }
+
+
+def load_bundle(session_key: int, *, use_cache: bool = True) -> dict[str, Any] | None:
+    """The parsed bundle for a session, or ``None`` if it is not built here.
+
+    The returned dictionary is shared between callers and is to be treated as
+    read-only; anything that needs a changed bundle builds a new one and stores
+    it, which drops the cached parse.
+    """
+    if use_cache:
+        with _BUNDLE_LOCK:
+            hit = _BUNDLE_CACHE.get(session_key)
+            if hit is not None:
+                _BUNDLE_CACHE.move_to_end(session_key)
+                return hit
+
     path = bundle_path(session_key)
     if not path.exists():
         return None
     try:
         with gzip.open(path, "rt", encoding="utf-8") as handle:
-            return json.load(handle)
+            bundle = json.load(handle)
     except (OSError, json.JSONDecodeError) as exc:  # a corrupt cache is a miss
         log.warning("discarding unreadable replay bundle %s: %s", path, exc)
         path.unlink(missing_ok=True)
+        forget_bundle(session_key)
         return None
+
+    if _upgrade(bundle):
+        # Paid once, and never with a refetch: everything added here comes out
+        # of frames and timing the bundle is already carrying.
+        _store_bundle(session_key, bundle)
+        log.info("upgraded replay bundle %s in place", session_key)
+
+    if use_cache:
+        with _BUNDLE_LOCK:
+            _BUNDLE_CACHE[session_key] = bundle
+            _BUNDLE_CACHE.move_to_end(session_key)
+            while len(_BUNDLE_CACHE) > BUNDLE_CACHE_SIZE:
+                _BUNDLE_CACHE.popitem(last=False)
+    return bundle
+
+
+def _upgrade(bundle: dict[str, Any]) -> bool:
+    """Fill in anything a newer build derives, without rebuilding the bundle.
+
+    A replay costs one request per car against a rate-limited API and several
+    minutes of reconstruction, so a bundle already on disk is not thrown away
+    because this module learned to describe it better. Both fields below are
+    derived from data the bundle already holds -- the frames, the per-lap
+    order, and the race-control text -- so an old bundle can simply be brought
+    forward where it lies.
+
+    Returns whether anything changed, so the caller can write it back.
+    """
+    from app.live import race_control as rc
+
+    changed = False
+
+    if bundle.get("events") is None:
+        track = bundle.get("track") or {}
+        bundle["events"] = _overtakes(
+            bundle.get("frames") or [],
+            bundle.get("laps") or {},
+            len(track.get("path") or ()),
+        )
+        changed = True
+
+    control = bundle.get("race_control") or []
+    if control and "severity" not in control[0]:
+        for event in control:
+            event["severity"] = rc.severity_of(event.get("message"), None)
+        changed = True
+
+    return changed
+
+
+#: The part of a bundle that is not playback data.
+META_FIELDS = (
+    "version", "built_at", "session", "duration_s", "frame_interval_s",
+    "total_laps", "drivers", "track", "laps", "race_control", "events", "results",
+)
+
+
+def bundle_part(session_key: int, part: str) -> bytes | None:
+    """One slice of a bundle as gzipped JSON: ``"meta"`` or ``"frames"``."""
+    if part not in {"meta", "frames"}:
+        raise ValueError(f"unknown bundle part {part!r}")
+
+    key = (session_key, part)
+    with _BUNDLE_LOCK:
+        hit = _PART_CACHE.get(key)
+        if hit is not None:
+            _PART_CACHE.move_to_end(key)
+            return hit
+
+    bundle = load_bundle(session_key)
+    if bundle is None:
+        return None
+
+    if part == "meta":
+        payload: Any = {k: bundle.get(k) for k in META_FIELDS if k in bundle}
+        payload["frame_count"] = len(bundle.get("frames") or ())
+    else:
+        payload = bundle.get("frames") or []
+
+    data = gzip.compress(
+        json.dumps(payload, separators=(",", ":")).encode("utf-8"), mtime=0
+    )
+    with _BUNDLE_LOCK:
+        _PART_CACHE[key] = data
+        _PART_CACHE.move_to_end(key)
+        while len(_PART_CACHE) > PART_CACHE_SIZE:
+            _PART_CACHE.popitem(last=False)
+    return data
 
 
 def bundle_bytes(session_key: int) -> bytes | None:
@@ -247,6 +408,7 @@ def write_bundle_bytes(session_key: int, data: bytes) -> Path:
     tmp = path.with_suffix(".tmp")
     tmp.write_bytes(data)
     tmp.replace(path)
+    forget_bundle(session_key)
     return path
 
 
@@ -257,6 +419,7 @@ def _store_bundle(session_key: int, bundle: dict[str, Any]) -> Path:
     with gzip.open(tmp, "wt", encoding="utf-8") as handle:
         json.dump(bundle, handle, separators=(",", ":"))
     tmp.replace(path)
+    forget_bundle(session_key)
     return path
 
 
@@ -350,6 +513,7 @@ def _build(session_key: int, client: OpenF1Client, report: Progress) -> dict[str
         "frames": frames,
         "laps": lap_state,
         "race_control": _control_log(control, t0),
+        "events": _overtakes(frames, lap_state, len(path)),
         "results": _final_order(positions, laps, drivers),
     }
     path = _store_bundle(session_key, bundle)
@@ -888,6 +1052,207 @@ def _build_frames(
     return frames
 
 
+# --------------------------------------------------------------------------
+# Overtakes
+# --------------------------------------------------------------------------
+#: A car is not racing for this long either side of a visit to the pit lane.
+#: Places handed over on the way in and taken back on the way out are the pit
+#: cycle; counting those is how a quiet race produces a hundred overtakes.
+PIT_SETTLE_S = 25.0
+
+#: Once a car is ahead it has to stay ahead for this long for the move to have
+#: happened. Fixes arrive every ~2.7 s and the frames interpolate between them,
+#: so cars running a tenth apart swap on the map without passing each other.
+OVERTAKE_SETTLE_S = 6.0
+
+#: Being passed by this many cars on one lap is not a run of lost duels. It is
+#: a car in trouble, and it is reported as that instead.
+INCIDENT_MIN_PASSES = 4
+
+
+def _is_ahead(a: float, b: float, loop: int) -> bool:
+    """Whether progress ``a`` is in front of progress ``b`` on a closed loop.
+
+    Positions wrap at the line, so "greater" is not "ahead". Two cars within
+    half a lap of each other -- which any pair racing each other is -- are
+    ordered by which way round the shorter gap runs.
+    """
+    return ((a - b) % loop) < loop / 2
+
+
+def _overtakes(
+    frames: list[dict[str, Any]],
+    lap_state: dict[str, list[dict[str, Any]]],
+    loop: int,
+) -> list[dict[str, Any]]:
+    """Every change of hands in the race, and the second it happened.
+
+    Two sources, each used for what it is good for.
+
+    The **per-lap order** decides *what* happened. It is timing data rather than
+    reconstruction, so it is the authority on who finished a lap ahead of whom,
+    and it carries a stop count -- which is how the pit cycle is told apart from
+    a move on track. A car that gained places because the car ahead pitted has
+    not overtaken anybody, and neither has a car whose own stop dropped it.
+
+    The **frames** decide *when*. A lap boundary is a poor timestamp for a move
+    made halfway round, and it cannot describe a move at all when it happened
+    between two boundaries. Comparing the two cars' progress through the lap
+    finds the moment one went by, to the second.
+    """
+    if not frames or loop <= 0 or not lap_state:
+        return []
+
+    # When each lap was being run, and where cars were during it.
+    windows: dict[int, list[dict[str, Any]]] = {}
+    for frame in frames:
+        lap = frame.get("lap")
+        if lap:
+            windows.setdefault(int(lap), []).append(frame)
+
+    # When each car was in the pit lane, so a stop can be kept out of the way.
+    pit_moments: dict[str, list[float]] = {}
+    for frame in frames:
+        for number, value in (frame.get("cars") or {}).items():
+            if isinstance(value, list):
+                pit_moments.setdefault(number, []).append(float(frame.get("t") or 0.0))
+
+    def near_pit(number: int, moment: float) -> bool:
+        return any(abs(moment - stamp) <= PIT_SETTLE_S
+                   for stamp in pit_moments.get(str(number), ()))
+
+    numbers = sorted(int(lap) for lap in lap_state if str(lap).isdigit())
+    events: list[dict[str, Any]] = []
+
+    for lap in numbers:
+        before = lap_state.get(str(lap - 1))
+        after = lap_state.get(str(lap))
+        if not before or not after:
+            continue
+
+        was = {row["number"]: row["position"] for row in before if row.get("position")}
+        stops_was = {row["number"]: row.get("stops") or 0 for row in before}
+        pitted = {
+            row["number"]
+            for row in after
+            if (row.get("stops") or 0) > stops_was.get(row["number"], 0)
+        }
+
+        found: list[dict[str, Any]] = []
+        for row in after:
+            car, position = row.get("number"), row.get("position")
+            if car is None or position is None or car in pitted:
+                continue
+            started = was.get(car)
+            if started is None or started <= position:
+                continue
+
+            # Whom it got by: everyone it started behind and finished ahead of,
+            # minus anyone who spent the lap in the pit lane.
+            for other in after:
+                passed, at = other.get("number"), other.get("position")
+                if passed is None or at is None or passed in pitted:
+                    continue
+                if was.get(passed) is None or was[passed] >= started or at <= position:
+                    continue
+                moment = _moment_of_pass(windows.get(lap, ()), car, passed, loop)
+                if moment is None or near_pit(car, moment) or near_pit(passed, moment):
+                    continue
+                found.append(
+                    {
+                        "t": round(moment, 1),
+                        "lap": lap,
+                        "kind": "pass",
+                        "car": int(car),
+                        "over": int(passed),
+                        "position": int(position),
+                    }
+                )
+
+        events.extend(_fold_incidents(found, was, after, lap))
+
+    events.sort(key=lambda e: (e["t"], e["car"]))
+    return events
+
+
+def _fold_incidents(
+    found: list[dict[str, Any]],
+    was: dict[int, int],
+    after: list[dict[str, Any]],
+    lap: int,
+) -> list[dict[str, Any]]:
+    """Collapse "the whole field went past one car" into the one thing it was.
+
+    When a car is passed by most of the grid on a single lap it did not lose a
+    string of duels: it broke, or spun, or picked up a puncture. Reporting that
+    as eleven overtakes is both wrong and useless -- the car in trouble is the
+    story, and it is one event, not eleven.
+    """
+    by_victim: dict[int, list[dict[str, Any]]] = {}
+    for event in found:
+        by_victim.setdefault(event["over"], []).append(event)
+
+    ends = {row["number"]: row.get("position") for row in after}
+    kept: list[dict[str, Any]] = []
+    for victim, passes in by_victim.items():
+        if len(passes) < INCIDENT_MIN_PASSES:
+            kept.extend(passes)
+            continue
+        kept.append(
+            {
+                "t": round(min(p["t"] for p in passes), 1),
+                "lap": lap,
+                "kind": "drop",
+                "car": int(victim),
+                "over": None,
+                "from_position": was.get(victim),
+                "position": ends.get(victim),
+                "passed_by": len(passes),
+            }
+        )
+    return kept
+
+
+def _moment_of_pass(
+    window: Iterable[dict[str, Any]],
+    car: int,
+    passed: int,
+    loop: int,
+) -> float | None:
+    """When ``car`` got in front of ``passed`` and stayed there, in the lap.
+
+    The last time the order was the old way round is the moment before the
+    move, so the first frame after it is the move. A pair that never appears
+    the old way round changed places before this lap's frames begin, and the
+    start of the window is the closest honest answer.
+    """
+    mine, theirs = str(car), str(passed)
+    first: float | None = None
+    last_behind: float | None = None
+    settled_at: float | None = None
+
+    for frame in window:
+        moment = float(frame.get("t") or 0.0)
+        if first is None:
+            first = moment
+        cars = frame.get("cars") or {}
+        here, there = cars.get(mine), cars.get(theirs)
+        if here is None or there is None:
+            continue
+        if isinstance(here, list) or isinstance(there, list):
+            continue                    # one of them is in the pit lane
+        if _is_ahead(float(here), float(there), loop):
+            if settled_at is None:
+                settled_at = moment
+        else:
+            last_behind = moment
+            settled_at = None
+
+    if settled_at is not None and (last_behind is None or settled_at > last_behind):
+        return settled_at
+    return first
+
+
 def _lap_timeline(laps: list[dict[str, Any]], t0: float) -> list[tuple[float, int]]:
     """``(offset_seconds, leader_lap)`` -- when each lap of the race began."""
     starts: dict[int, float] = {}
@@ -1225,12 +1590,14 @@ def _control_log(control: list[dict[str, Any]], t0: float) -> list[dict[str, Any
         if moment is None:
             continue
         state = rc.classify_openf1_message(message)
+        text = str(message.get("message") or "")[:200]
         out.append(
             {
                 "t": round(moment.timestamp() - t0, 1),
                 "lap": message.get("lap_number"),
                 "state": state.value if state else None,
-                "message": str(message.get("message") or "")[:200],
+                "severity": rc.severity_of(text, state),
+                "message": text,
             }
         )
     return out

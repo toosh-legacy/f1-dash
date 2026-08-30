@@ -19,6 +19,8 @@ from collections import defaultdict
 from contextlib import suppress
 from typing import Any
 
+from app.live import race_control as rc
+
 log = logging.getLogger(__name__)
 
 QUEUE_MAXSIZE = 64
@@ -114,17 +116,49 @@ def qualifying_update(period: str, predictions: list[dict[str, Any]]) -> dict[st
     return {"type": "qualifying_update", "period": period, "predictions": predictions}
 
 
-def race_update(lap_number: int, predictions: list[dict[str, Any]], *, is_gated: bool) -> dict[str, Any]:
+def race_update(
+    lap_number: int,
+    predictions: list[dict[str, Any]],
+    *,
+    is_gated: bool,
+    order: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """One lap of a live race.
+
+    ``order`` carries the running order in the same shape a replay bundle uses
+    for ``laps[n]`` -- number, position, gap, compound, tyre age, stops. A live
+    race and a replayed one are the same thing to a viewer, so sending the same
+    shape means the dashboard renders both through one path instead of keeping
+    a second, live-only one that is exercised far less often.
+    """
     return {
         "type": "race_update",
         "lap_number": lap_number,
         "is_gated": is_gated,
         "predictions": predictions,
+        "order": order or [],
     }
 
 
-def race_control(event_type: str, lap_number: int | None) -> dict[str, Any]:
-    return {"type": "race_control", "event_type": event_type, "lap_number": lap_number}
+def race_control(
+    event_type: str,
+    lap_number: int | None,
+    *,
+    message: str | None = None,
+    severity: str | None = None,
+) -> dict[str, Any]:
+    """A call from race control.
+
+    Carries the message itself and its severity, so a live client can decide
+    what to surface on exactly the same rule a replay client uses.
+    """
+    return {
+        "type": "race_control",
+        "event_type": event_type,
+        "lap_number": lap_number,
+        "message": message,
+        "severity": severity or rc.severity_of(message, None),
+    }
 
 
 def training_progress(stage: str, detail: dict[str, Any] | None = None) -> dict[str, Any]:

@@ -303,6 +303,32 @@ class ReplayProjection(Base):
     )
 
 
+class OpenF1SessionIndex(Base):
+    """OpenF1's session catalogue, cached.
+
+    Which races have run is a fact about the season, not about this server, and
+    it changes when a weekend starts rather than when somebody opens the page.
+    Keeping it here takes a rate-limited third party out of the request path;
+    see :mod:`app.db.session_index` for the refresh policy.
+    """
+
+    __tablename__ = "openf1_session_index"
+
+    session_key: Mapped[int] = mapped_column(Integer, primary_key=True)
+    year: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    meeting_key: Mapped[int | None] = mapped_column(Integer)
+    name: Mapped[str | None] = mapped_column(String(64))
+    session_type: Mapped[str | None] = mapped_column(String(32))
+    circuit: Mapped[str | None] = mapped_column(String(128))
+    country: Mapped[str | None] = mapped_column(String(128))
+    location: Mapped[str | None] = mapped_column(String(128))
+    date_start: Mapped[str | None] = mapped_column(String(40))
+
+    indexed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False, index=True
+    )
+
+
 class ReplayBundle(Base):
     """A built replay, kept where everyone can reach it.
 
