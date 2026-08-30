@@ -42,10 +42,18 @@
   --mono: ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, monospace;
 }
 * { box-sizing: border-box; }
+
+/* Scrolling is a given; a bar saying how far down you are is not information
+   anybody asked for, and on a dark surface it is the brightest thing in a
+   panel. Scrolling itself is untouched -- wheel, trackpad, keys and the
+   scrollIntoView the search results use all behave exactly as before. */
+* { scrollbar-width: none; -ms-overflow-style: none; }
+*::-webkit-scrollbar { width: 0; height: 0; display: none; }
 html, body { height: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
   font: 400 14px/1.55 var(--ui);
+  font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
   display: flex; flex-direction: column; overflow: hidden;
 }
@@ -92,6 +100,14 @@ input[type=search]:focus, select:focus {
   z-index: 0; pointer-events: none; opacity: .07;
   transition: opacity .35s ease;
 }
+/* A fine scan texture over the whole page: too small to see, enough to stop a
+   large black area reading as paper. */
+body::after {
+  content: ""; position: fixed; inset: 0; z-index: 1; pointer-events: none;
+  background: repeating-linear-gradient(180deg,
+    rgba(255,255,255,.014) 0 1px, transparent 1px 3px);
+}
+
 #tubeVeil {
   position: fixed; inset: 0; z-index: 1; pointer-events: none;
   background:
@@ -230,6 +246,38 @@ main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 1
     radial-gradient(70% 50% at 20% 0%, rgba(255,43,57,.05), transparent 70%),
     radial-gradient(60% 50% at 90% 100%, rgba(61,139,255,.05), transparent 70%);
 }
+
+/* The grid is invisible until something is being placed against it, which is
+   the only moment it is information rather than decoration. */
+#board::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; z-index: 0;
+  opacity: 0; transition: opacity .22s ease;
+  background-image:
+    linear-gradient(90deg, rgba(61,139,255,.16) 1px, transparent 1px),
+    linear-gradient(180deg, rgba(61,139,255,.16) 1px, transparent 1px);
+  background-size: calc(100% / 24) calc(100% / 12);
+  -webkit-mask-image: radial-gradient(120% 120% at 50% 50%, #000 55%, transparent 100%);
+          mask-image: radial-gradient(120% 120% at 50% 50%, #000 55%, transparent 100%);
+}
+#board.gridded::after { opacity: 1; }
+
+/* Where the panel will land. */
+#ghost {
+  position: absolute; z-index: 900; pointer-events: none; border-radius: 18px;
+  border: 1px solid rgba(61,139,255,.55);
+  background: rgba(61,139,255,.07);
+  box-shadow: 0 0 0 1px rgba(61,139,255,.12), inset 0 0 26px rgba(61,139,255,.10);
+  transition: left .12s ease, top .12s ease, width .12s ease, height .12s ease;
+}
+#ghost[hidden] { display: none; }
+
+/* A panel let go of does not snap; it settles. */
+.widget.settling {
+  transition: left .3s cubic-bezier(.22,1.1,.32,1), top .3s cubic-bezier(.22,1.1,.32,1),
+              width .3s cubic-bezier(.22,1.1,.32,1), height .3s cubic-bezier(.22,1.1,.32,1),
+              box-shadow .3s ease, transform .3s ease;
+}
+.widget.dragging { transition: box-shadow .2s ease, transform .2s ease; }
 #board { position: absolute; inset: 0; }
 .widget {
   position: absolute;
@@ -253,6 +301,24 @@ main { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 1
                                      var(--tint, transparent) 78%, transparent);
   opacity: .5; pointer-events: none;
 }
+/* Corner brackets, on the panel being used. Instrument panels mark their
+   corners; it costs one gradient and reads as machined rather than drawn. */
+.widget::after {
+  content: ""; position: absolute; inset: 7px; border-radius: 12px;
+  pointer-events: none; opacity: 0; transition: opacity .2s ease;
+  background:
+    linear-gradient(var(--tint, var(--blue)), var(--tint, var(--blue))) 0 0 / 11px 1px no-repeat,
+    linear-gradient(var(--tint, var(--blue)), var(--tint, var(--blue))) 0 0 / 1px 11px no-repeat,
+    linear-gradient(var(--tint, var(--blue)), var(--tint, var(--blue))) 100% 0 / 11px 1px no-repeat,
+    linear-gradient(var(--tint, var(--blue)), var(--tint, var(--blue))) 100% 0 / 1px 11px no-repeat,
+    linear-gradient(var(--tint, var(--blue)), var(--tint, var(--blue))) 0 100% / 11px 1px no-repeat,
+    linear-gradient(var(--tint, var(--blue)), var(--tint, var(--blue))) 0 100% / 1px 11px no-repeat,
+    linear-gradient(var(--tint, var(--blue)), var(--tint, var(--blue))) 100% 100% / 11px 1px no-repeat,
+    linear-gradient(var(--tint, var(--blue)), var(--tint, var(--blue))) 100% 100% / 1px 11px no-repeat;
+}
+.widget:hover::after, .widget.active::after { opacity: .3; }
+.widget.pinned::after { display: none; }
+
 .widget:hover, .widget.active {
   border-color: rgba(255,255,255,.12);
   box-shadow:
@@ -603,6 +669,34 @@ tbody tr:hover { background: var(--panel-2); }
 .menu-body button.preset.on { background: rgba(61,139,255,.12); }
 .menu-body button.preset.on b { color: #bcd5ff; }
 
+/* -- panel size ---------------------------------------------------------- */
+.size-menu { position: relative; display: flex; align-items: center; }
+.w-head .size-btn {
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .02em;
+  padding: 3px 7px; color: var(--dim); border-radius: 6px;
+  opacity: 0; transition: opacity .18s, color .15s, background .15s;
+}
+.widget:hover .w-head .size-btn, .widget.active .w-head .size-btn { opacity: 1; }
+.w-head .size-btn:hover { color: var(--text); background: var(--panel-2); }
+.size-list {
+  position: absolute; right: 0; top: calc(100% + 7px); z-index: var(--z-popover);
+  min-width: 168px; padding: 5px;
+  background: var(--panel-solid); border: 1px solid var(--line); border-radius: 11px;
+  box-shadow: 0 22px 50px rgba(0,0,0,.72);
+}
+.size-list[hidden] { display: none; }
+.size-list button {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  width: 100%; text-align: left; background: transparent; border-color: transparent;
+  padding: 6px 8px; border-radius: 7px; font-size: 12.5px; color: var(--text);
+}
+.size-list button:hover { background: var(--panel-2); border-color: transparent; }
+.size-list button em {
+  font-style: normal; font-family: var(--mono); font-size: 10.5px; color: var(--dim);
+}
+.size-list button.on { background: rgba(61,139,255,.14); }
+.size-list button.on em { color: #9fc4ff; }
+
 #log { max-height: 100%; overflow: auto; padding: 8px 13px; font-family: var(--mono);
   font-size: 11.5px; color: var(--muted); }
 #log div { padding: 2px 0; border-bottom: 1px solid #131519; }
@@ -717,101 +811,120 @@ const when = (iso) => (iso ? new Date(iso).toLocaleString(undefined,
  * overlap; the last one touched comes to the front.
  * ================================================================== */
 
+/* ======================================================================
+ * The board: a grid, and panels that live in cells of it
+ *
+ * Free placement gave the viewer a pixel to land on and no reason to prefer
+ * any particular one, so arrangements came out almost-aligned. A grid removes
+ * the question: a panel occupies whole cells, every edge lands on a line, and
+ * two panels put side by side are exactly side by side.
+ *
+ * The cell is small -- a twenty-fourth of the width, a twelfth of the height --
+ * so the grid guides rather than dictates, the way an icon grid does. Panels
+ * are then described the way a phone describes a widget: a size in cells, with
+ * a handful of named sizes for the common ones.
+ * ================================================================== */
+
+const GRID_COLS = 24;
+const GRID_ROWS = 12;
+
+//: Below this a panel has a heading and no room for anything under it.
+const MIN_CW = 4, MIN_CH = 2;
+
 const PANELS = [
   // The circuit is the page, so it does not move. It is pinned to the left for
   // its whole height and the only thing the viewer changes is how wide it is --
   // which is the same gesture as making the column beside it narrower.
-  { id: "map",        title: "Circuit",       x: 0.000, y: 0.00, w: 0.585, h: 1.00,
-    always: true, pinned: true },
-  { id: "order",      title: "Running order", x: 0.595, y: 0.00, w: 0.215, h: 1.00 },
-  { id: "notify",     title: "Notifications", x: 0.820, y: 0.00, w: 0.180, h: 0.52 },
-  { id: "control",    title: "Race control",  x: 0.820, y: 0.53, w: 0.180, h: 0.47 },
-  { id: "prediction", title: "Prediction",    x: 0.140, y: 0.10, w: 0.430, h: 0.72,
-    off: true, float: true },
-  { id: "log",        title: "Live feed",     x: 0.600, y: 0.62, w: 0.210, h: 0.38, off: true },
+  { id: "map",        title: "Circuit",       c: 0,  r: 0, cw: 14, ch: 12, always: true, pinned: true },
+  { id: "order",      title: "Running order", c: 14, r: 0, cw: 5,  ch: 12 },
+  { id: "notify",     title: "Notifications", c: 19, r: 0, cw: 5,  ch: 6 },
+  { id: "control",    title: "Race control",  c: 19, r: 6, cw: 5,  ch: 6 },
+  { id: "prediction", title: "Prediction",    c: 4,  r: 1, cw: 11, ch: 9, off: true, float: true },
+  { id: "log",        title: "Live feed",     c: 14, r: 7, cw: 5,  ch: 5, off: true },
 ];
 
-const BY_ID = Object.fromEntries(PANELS.map((panel) => [panel.id, panel]));
+/** The sizes a panel is usually wanted at, named. Same idea as a phone's
+ *  small / medium / large: most of the time somebody wants one of a few
+ *  shapes, and picking one from a list beats dragging to it. */
+const SIZES = [
+  { key: "small",  label: "Small",  cw: 5,  ch: 4 },
+  { key: "wide",   label: "Wide",   cw: 10, ch: 4 },
+  { key: "tall",   label: "Tall",   cw: 5,  ch: 8 },
+  { key: "large",  label: "Large",  cw: 10, ch: 8 },
+  { key: "column", label: "Column", cw: 5,  ch: 12 },
+];
 
-/** A floating panel is one the viewer summoned over the board rather than one
- *  docked on it, so it sits above the lot. Without this, clicking the map --
- *  its play button counts -- would bring the map over the prediction that the
- *  map's own button had just opened. */
-const FLOAT_LIFT = 1000;   /* matches --z-float */
-const zOf = (id) => layout[id].z + (BY_ID[id].float ? FLOAT_LIFT : 0);
-
-/** Arrangements worth starting from.
+/** Arrangements worth starting from, in cells.
  *
- *  Free placement is only a gift if there is somewhere to start, and the
- *  useful arrangements are not arbitrary -- they follow what somebody is
- *  actually doing. Watching a race wants the order beside the track; reading
- *  strategy wants the projection open and large; arguing about a call wants
- *  race control given real room. The circuit is pinned left in all of them,
- *  and only its width changes. */
+ *  The useful ones are not arbitrary -- they follow what somebody is doing.
+ *  Watching a race wants the order beside the track; reading strategy wants the
+ *  projection open and large; arguing about a call wants race control given
+ *  real room. The circuit is pinned left in all of them; only its width moves. */
 const PRESETS = {
   broadcast: {
     label: "Broadcast",
     hint: "the track, the order, and what just happened",
     panels: {
-      map:        { x: 0, y: 0,    w: 0.585, h: 1,    visible: true },
-      order:      { x: 0.595, y: 0,    w: 0.215, h: 1,    visible: true },
-      notify:     { x: 0.820, y: 0,    w: 0.180, h: 0.52, visible: true },
-      control:    { x: 0.820, y: 0.53, w: 0.180, h: 0.47, visible: true },
-      prediction: { x: 0.140, y: 0.10, w: 0.430, h: 0.72, visible: false },
-      log:        { x: 0.600, y: 0.62, w: 0.210, h: 0.38, visible: false },
+      map:        { c: 0,  r: 0, cw: 14, ch: 12, visible: true },
+      order:      { c: 14, r: 0, cw: 5,  ch: 12, visible: true },
+      notify:     { c: 19, r: 0, cw: 5,  ch: 6,  visible: true },
+      control:    { c: 19, r: 6, cw: 5,  ch: 6,  visible: true },
+      prediction: { c: 4,  r: 1, cw: 11, ch: 9,  visible: false },
+      log:        { c: 14, r: 7, cw: 5,  ch: 5,  visible: false },
     },
   },
   strategy: {
     label: "Strategy",
     hint: "the projection, given room to be read",
     panels: {
-      map:        { x: 0, y: 0,    w: 0.400, h: 1,    visible: true },
-      prediction: { x: 0.410, y: 0,    w: 0.360, h: 1,    visible: true },
-      order:      { x: 0.780, y: 0,    w: 0.220, h: 0.62, visible: true },
-      notify:     { x: 0.780, y: 0.63, w: 0.220, h: 0.37, visible: true },
-      control:    { x: 0.410, y: 0.60, w: 0.360, h: 0.40, visible: false },
-      log:        { x: 0.600, y: 0.62, w: 0.210, h: 0.38, visible: false },
+      map:        { c: 0,  r: 0, cw: 10, ch: 12, visible: true },
+      prediction: { c: 10, r: 0, cw: 9,  ch: 12, visible: true },
+      order:      { c: 19, r: 0, cw: 5,  ch: 8,  visible: true },
+      notify:     { c: 19, r: 8, cw: 5,  ch: 4,  visible: true },
+      control:    { c: 10, r: 7, cw: 9,  ch: 5,  visible: false },
+      log:        { c: 14, r: 7, cw: 5,  ch: 5,  visible: false },
     },
   },
   stewards: {
     label: "Stewards",
     hint: "every call, in full, next to the order it changed",
     panels: {
-      map:        { x: 0, y: 0,    w: 0.360, h: 1,    visible: true },
-      control:    { x: 0.370, y: 0,    w: 0.360, h: 1,    visible: true },
-      order:      { x: 0.740, y: 0,    w: 0.260, h: 0.55, visible: true },
-      notify:     { x: 0.740, y: 0.56, w: 0.260, h: 0.44, visible: true },
-      prediction: { x: 0.140, y: 0.10, w: 0.430, h: 0.72, visible: false },
-      log:        { x: 0.600, y: 0.62, w: 0.210, h: 0.38, visible: false },
+      map:        { c: 0,  r: 0, cw: 9,  ch: 12, visible: true },
+      control:    { c: 9,  r: 0, cw: 9,  ch: 12, visible: true },
+      order:      { c: 18, r: 0, cw: 6,  ch: 7,  visible: true },
+      notify:     { c: 18, r: 7, cw: 6,  ch: 5,  visible: true },
+      prediction: { c: 4,  r: 1, cw: 11, ch: 9,  visible: false },
+      log:        { c: 14, r: 7, cw: 5,  ch: 5,  visible: false },
     },
   },
   wall: {
     label: "Pit wall",
     hint: "everything at once, for a second screen",
     panels: {
-      map:        { x: 0, y: 0,    w: 0.480, h: 1,    visible: true },
-      order:      { x: 0.490, y: 0,    w: 0.200, h: 1,    visible: true },
-      prediction: { x: 0.700, y: 0,    w: 0.300, h: 0.50, visible: true },
-      notify:     { x: 0.700, y: 0.51, w: 0.150, h: 0.49, visible: true },
-      control:    { x: 0.860, y: 0.51, w: 0.140, h: 0.49, visible: true },
-      log:        { x: 0.600, y: 0.62, w: 0.210, h: 0.38, visible: false },
+      map:        { c: 0,  r: 0, cw: 11, ch: 12, visible: true },
+      order:      { c: 11, r: 0, cw: 5,  ch: 12, visible: true },
+      prediction: { c: 16, r: 0, cw: 8,  ch: 6,  visible: true },
+      notify:     { c: 16, r: 6, cw: 4,  ch: 6,  visible: true },
+      control:    { c: 20, r: 6, cw: 4,  ch: 6,  visible: true },
+      log:        { c: 14, r: 7, cw: 5,  ch: 5,  visible: false },
     },
   },
   focus: {
     label: "Focus",
     hint: "the circuit, and nothing competing with it",
     panels: {
-      map:        { x: 0, y: 0,    w: 0.760, h: 1,    visible: true },
-      order:      { x: 0.770, y: 0,    w: 0.230, h: 1,    visible: true },
-      notify:     { x: 0.820, y: 0,    w: 0.180, h: 0.52, visible: false },
-      control:    { x: 0.820, y: 0.53, w: 0.180, h: 0.47, visible: false },
-      prediction: { x: 0.140, y: 0.10, w: 0.430, h: 0.72, visible: false },
-      log:        { x: 0.600, y: 0.62, w: 0.210, h: 0.38, visible: false },
+      map:        { c: 0,  r: 0, cw: 18, ch: 12, visible: true },
+      order:      { c: 18, r: 0, cw: 6,  ch: 12, visible: true },
+      notify:     { c: 19, r: 0, cw: 5,  ch: 6,  visible: false },
+      control:    { c: 19, r: 6, cw: 5,  ch: 6,  visible: false },
+      prediction: { c: 4,  r: 1, cw: 11, ch: 9,  visible: false },
+      log:        { c: 14, r: 7, cw: 5,  ch: 5,  visible: false },
     },
   },
 };
 
 const DEFAULT_PRESET = "broadcast";
+let currentPreset = DEFAULT_PRESET;
 
 function applyPreset(name) {
   const preset = PRESETS[name];
@@ -831,10 +944,16 @@ function applyPreset(name) {
   if (player.bounds) { fitMap(); renderFrame(player.time); }
 }
 
-let currentPreset = DEFAULT_PRESET;
+const LAYOUT_KEY = "f1dash.layout.v4";
+const BY_ID = Object.fromEntries(PANELS.map((panel) => [panel.id, panel]));
 
-const LAYOUT_KEY = "f1dash.layout.v3";
-const MIN_W = 230, MIN_H = 130;   // px: below this a panel says nothing useful
+/** A floating panel is one the viewer summoned over the board rather than one
+ *  docked on it, so it sits above the lot -- otherwise clicking the map (its
+ *  play button counts) would bring the map over the prediction that the map's
+ *  own button had just opened. */
+const FLOAT_LIFT = 1000;   /* matches --z-float */
+const zOf = (id) => layout[id].z + (BY_ID[id].float ? FLOAT_LIFT : 0);
+
 let layout = loadLayout();
 let zTop = 10;
 
@@ -842,11 +961,10 @@ function loadLayout() {
   const base = {};
   PANELS.forEach((panel, index) => {
     base[panel.id] = {
-      x: panel.x, y: panel.y, w: panel.w, h: panel.h,
+      c: panel.c, r: panel.r, cw: panel.cw, ch: panel.ch,
       z: 10 + index, visible: !panel.off,
     };
   });
-  Object.assign(base, {});   // shape fixed above; presets fill it in below
   try {
     const saved = JSON.parse(localStorage.getItem(LAYOUT_KEY) || "null");
     if (saved && saved.panels) {
@@ -875,19 +993,35 @@ function boardSize() {
   return { W: Math.max(wrap.clientWidth, 1), H: Math.max(wrap.clientHeight, 1) };
 }
 
-/** Write a panel's stored fractions out as pixels. */
+/** One cell, in pixels. */
+function cell() {
+  const { W, H } = boardSize();
+  return { w: W / GRID_COLS, h: H / GRID_ROWS };
+}
+
+const clampCell = (value, span, max) => Math.max(0, Math.min(value, max - span));
+
+/** Write a panel's cell rectangle out as pixels. A gutter is taken out of the
+ *  cell rather than added between panels, so two panels in adjacent cells are
+ *  exactly one gutter apart however they are placed. */
+const GUTTER = 10;
+
 function place(id) {
   const widget = widgets[id];
   const state = layout[id];
   if (!widget || !state) return;
-  const { W, H } = boardSize();
-  if (BY_ID[id].pinned) { state.x = 0; state.y = 0; state.h = 1; }
-  const width = Math.min(Math.max(state.w * W, MIN_W), W);
-  const height = Math.min(Math.max(state.h * H, MIN_H), H);
-  widget.style.left = `${Math.min(Math.max(state.x * W, 0), Math.max(W - width, 0)).toFixed(1)}px`;
-  widget.style.top = `${Math.min(Math.max(state.y * H, 0), Math.max(H - height, 0)).toFixed(1)}px`;
-  widget.style.width = `${width.toFixed(1)}px`;
-  widget.style.height = `${height.toFixed(1)}px`;
+  const { w, h } = cell();
+
+  if (BY_ID[id].pinned) { state.c = 0; state.r = 0; state.ch = GRID_ROWS; }
+  state.cw = Math.max(MIN_CW, Math.min(state.cw, GRID_COLS));
+  state.ch = Math.max(MIN_CH, Math.min(state.ch, GRID_ROWS));
+  state.c = clampCell(state.c, state.cw, GRID_COLS);
+  state.r = clampCell(state.r, state.ch, GRID_ROWS);
+
+  widget.style.left = `${(state.c * w + GUTTER / 2).toFixed(1)}px`;
+  widget.style.top = `${(state.r * h + GUTTER / 2).toFixed(1)}px`;
+  widget.style.width = `${(state.cw * w - GUTTER).toFixed(1)}px`;
+  widget.style.height = `${(state.ch * h - GUTTER).toFixed(1)}px`;
   widget.style.zIndex = zOf(id);
 }
 
@@ -902,18 +1036,28 @@ function bringToFront(id) {
   for (const [other, node] of Object.entries(widgets)) node.classList.toggle("active", other === id);
 }
 
-/** Fill the board with one panel, or give it back the place it came from.
- *  The old place is kept on the panel rather than recomputed, so a restore
- *  puts it back exactly where the viewer had it. */
+/** Fill the board with one panel, or give it back the cells it came from. */
 function toggleFull(id) {
   const state = layout[id];
   if (state.restore) {
     Object.assign(state, state.restore);
     state.restore = null;
   } else {
-    state.restore = { x: state.x, y: state.y, w: state.w, h: state.h };
-    Object.assign(state, { x: 0, y: 0, w: 1, h: 1 });
+    state.restore = { c: state.c, r: state.r, cw: state.cw, ch: state.ch };
+    Object.assign(state, { c: 0, r: 0, cw: GRID_COLS, ch: GRID_ROWS });
   }
+  bringToFront(id);
+  place(id);
+  saveLayout();
+  if (id === "map" && player.bounds) { fitMap(); renderFrame(player.time); }
+}
+
+/** Give a panel one of the named sizes, keeping its top-left corner. */
+function setSize(id, cw, ch) {
+  const state = layout[id];
+  state.cw = Math.max(MIN_CW, Math.min(cw, GRID_COLS));
+  state.ch = Math.max(MIN_CH, Math.min(ch, GRID_ROWS));
+  state.restore = null;
   bringToFront(id);
   place(id);
   saveLayout();
@@ -949,6 +1093,7 @@ function buildBoard() {
     head.className = "w-head";
     head.innerHTML = `<span class="grip">&#10287;</span><h2>${panel.title}</h2><span class="spacer"></span>`;
     head.append(headExtras(panel.id));
+    if (!panel.pinned) head.append(sizeMenu(panel.id));
     if (!panel.always) {
       const close = document.createElement("button");
       close.className = "ghost";
@@ -1013,6 +1158,48 @@ function restoreChrome() {
     renderRaceControl(0);
   }
 }
+
+/** The size control: the panel's own dimensions, and the sizes it can be. */
+function sizeMenu(id) {
+  const wrap = document.createElement("span");
+  wrap.className = "size-menu";
+
+  const button = document.createElement("button");
+  button.className = "ghost size-btn";
+  button.title = "resize this panel";
+  button.textContent = `${layout[id].cw}×${layout[id].ch}`;
+
+  const list = document.createElement("div");
+  list.className = "size-list";
+  list.hidden = true;
+  for (const size of SIZES) {
+    const option = document.createElement("button");
+    const current = layout[id].cw === size.cw && layout[id].ch === size.ch;
+    option.className = current ? "on" : "";
+    option.innerHTML = `<span></span><em>${size.cw}×${size.ch}</em>`;
+    option.querySelector("span").textContent = size.label;
+    option.addEventListener("click", (event) => {
+      event.stopPropagation();
+      list.hidden = true;
+      setSize(id, size.cw, size.ch);
+      button.textContent = `${layout[id].cw}×${layout[id].ch}`;
+    });
+    list.append(option);
+  }
+
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const opening = list.hidden;
+    document.querySelectorAll(".size-list").forEach((other) => { other.hidden = true; });
+    list.hidden = !opening;
+  });
+  wrap.append(button, list);
+  return wrap;
+}
+
+document.addEventListener("click", () => {
+  document.querySelectorAll(".size-list").forEach((list) => { list.hidden = true; });
+});
 
 /** Per-panel controls that live in the panel's own header. */
 function headExtras(id) {
@@ -1082,90 +1269,41 @@ function transport() {
   return bar;
 }
 
-/* -- move ---------------------------------------------------------------
-   Drag the header anywhere. A panel is kept whole on the board rather than
-   allowed over the edge: half a panel hanging off is not a view of anything,
-   and it puts the resize grips somewhere the pointer cannot reach them. */
+/* -- the grid, while it is being used ------------------------------------
+   The grid is invisible until somebody is placing something against it, which
+   is the only time it is information rather than decoration. */
 
-const SNAP = 9;   // px: close enough to an edge to mean that edge
+function showGrid(on) {
+  el("board").classList.toggle("gridded", on);
+}
 
-//: Two panels separated by no more than a gutter are reading as a split, so
-//: the edge between them belongs to both. This is wider than SNAP on purpose:
-//: panels are laid out with a gap between them, and that gap is part of the
-//: division rather than empty space that happens to be there.
-const LINK_GAP = 30;
-
-/** The edges a dragged panel should line up with: the board's own sides, and
- *  every side of every other panel. Gathered once at the start of a drag,
- *  because nothing else moves during one. */
-function snapGuides(exceptId) {
-  const { W, H } = boardSize();
-  const board = el("boardWrap").getBoundingClientRect();
-  const x = [0, W], y = [0, H];
-  for (const [other, node] of Object.entries(widgets)) {
-    if (other === exceptId) continue;
-    const r = node.getBoundingClientRect();
-    x.push(r.left - board.left, r.right - board.left);
-    y.push(r.top - board.top, r.bottom - board.top);
+/** Where a panel would land, shown as an outline in the cells it would take. */
+function ghost(id, c, r, cw, ch) {
+  let node = el("ghost");
+  if (!node) {
+    node = document.createElement("div");
+    node.id = "ghost";
+    el("board").append(node);
   }
-  return { x, y };
+  const { w, h } = cell();
+  node.style.left = `${(c * w + GUTTER / 2).toFixed(1)}px`;
+  node.style.top = `${(r * h + GUTTER / 2).toFixed(1)}px`;
+  node.style.width = `${(cw * w - GUTTER).toFixed(1)}px`;
+  node.style.height = `${(ch * h - GUTTER).toFixed(1)}px`;
+  node.hidden = false;
 }
 
-/** Panels sharing the edge being dragged, on the far side of it.
- *
- *  Two panels sitting flush are reading as a split, not as two things that
- *  happen to touch, so the edge between them belongs to both: dragging it
- *  should make one wider and the other narrower rather than opening a gap or
- *  burying one under the other. Only panels that actually overlap along the
- *  other axis count -- a panel diagonally opposite shares a coordinate without
- *  sharing an edge. */
-function neighboursOn(id, direction) {
-  const { W, H } = boardSize();
-  const board = el("boardWrap").getBoundingClientRect();
-  const mine = widgets[id].getBoundingClientRect();
-  const found = [];
-
-  for (const [other, node] of Object.entries(widgets)) {
-    if (other === id || BY_ID[other].pinned) continue;
-    const r = node.getBoundingClientRect();
-    const overlapY = Math.min(mine.bottom, r.bottom) - Math.max(mine.top, r.top);
-    const overlapX = Math.min(mine.right, r.right) - Math.max(mine.left, r.left);
-
-    let touching = false;
-    if (direction.includes("e")) touching = Math.abs(r.left - mine.right) <= LINK_GAP && overlapY > 24;
-    else if (direction.includes("w")) touching = Math.abs(r.right - mine.left) <= LINK_GAP && overlapY > 24;
-    else if (direction.includes("s")) touching = Math.abs(r.top - mine.bottom) <= LINK_GAP && overlapX > 24;
-    else if (direction.includes("n")) touching = Math.abs(r.bottom - mine.top) <= LINK_GAP && overlapX > 24;
-    if (!touching) continue;
-
-    found.push({
-      id: other,
-      left: r.left - board.left, top: r.top - board.top,
-      width: r.width, height: r.height,
-    });
-  }
-  return found;
+function hideGhost() {
+  const node = el("ghost");
+  if (node) node.hidden = true;
 }
 
-/** How far an edge may travel before a neighbour would be crushed. */
-function neighbourRoom(neighbours, direction) {
-  if (!neighbours.length) return Infinity;
-  return Math.min(...neighbours.map((n) => (
-    direction.includes("e") || direction.includes("w")
-      ? n.width - MIN_W
-      : n.height - MIN_H
-  )));
-}
-
-/** Pull an edge onto a guide if it is within reach -- either the near edge or
- *  the far one, so panels line up flush on whichever side is closest. */
-function snapTo(value, span, guides) {
-  for (const guide of guides) {
-    if (Math.abs(value - guide) <= SNAP) return guide;
-    if (Math.abs(value + span - guide) <= SNAP) return guide - span;
-  }
-  return value;
-}
+/* -- move -----------------------------------------------------------------
+   The panel follows the pointer exactly, because anything else feels like
+   lag, while an outline shows the cells it will actually take. On release it
+   settles into them. That split -- the thing under your finger is free, the
+   thing it will become is snapped -- is what makes an icon grid feel good
+   rather than sticky. */
 
 function makeDraggable(widget, handle, id) {
   handle.addEventListener("pointerdown", (event) => {
@@ -1175,29 +1313,37 @@ function makeDraggable(widget, handle, id) {
     handle.setPointerCapture(event.pointerId);
     bringToFront(id);
     widget.classList.add("dragging");
+    showGrid(true);
 
-    const { W, H } = boardSize();
+    const { w, h } = cell();
     const startX = event.clientX, startY = event.clientY;
-    const originLeft = layout[id].x * W, originTop = layout[id].y * H;
-    const width = widget.offsetWidth, height = widget.offsetHeight;
-    const guides = snapGuides(id);
-
-    const clampX = (v) => Math.min(Math.max(W - width, 0), Math.max(0, v));
-    const clampY = (v) => Math.min(Math.max(H - height, 0), Math.max(0, v));
+    const originLeft = layout[id].c * w + GUTTER / 2;
+    const originTop = layout[id].r * h + GUTTER / 2;
+    let target = { c: layout[id].c, r: layout[id].r };
 
     const move = (moveEvent) => {
-      const left = clampX(snapTo(clampX(originLeft + moveEvent.clientX - startX), width, guides.x));
-      const top = clampY(snapTo(clampY(originTop + moveEvent.clientY - startY), height, guides.y));
+      const left = originLeft + moveEvent.clientX - startX;
+      const top = originTop + moveEvent.clientY - startY;
       widget.style.left = `${left.toFixed(1)}px`;
       widget.style.top = `${top.toFixed(1)}px`;
-      layout[id].x = left / W;
-      layout[id].y = top / H;
+      target = {
+        c: clampCell(Math.round(left / w), layout[id].cw, GRID_COLS),
+        r: clampCell(Math.round(top / h), layout[id].ch, GRID_ROWS),
+      };
+      ghost(id, target.c, target.r, layout[id].cw, layout[id].ch);
     };
     const up = () => {
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", up);
       handle.removeEventListener("pointercancel", up);
       widget.classList.remove("dragging");
+      widget.classList.add("settling");
+      setTimeout(() => widget.classList.remove("settling"), 340);
+      showGrid(false);
+      hideGhost();
+      layout[id].c = target.c;
+      layout[id].r = target.r;
+      place(id);
       saveLayout();
     };
     handle.addEventListener("pointermove", move);
@@ -1206,10 +1352,28 @@ function makeDraggable(widget, handle, id) {
   });
 }
 
-/* -- resize -------------------------------------------------------------
-   Any edge, any corner. The north and west grips move the panel's origin as
-   well as its size, which is what makes a drag on that side feel like it is
-   pulling the panel open rather than sliding it. */
+/* -- resize ---------------------------------------------------------------
+   Whole cells only, so an edge cannot come to rest a few pixels off a line.
+   The edge being dragged is shared with whatever is on the other side of it:
+   two panels either side of a gutter are reading as a split, not as two things
+   that happen to be near each other, so widening one narrows the other. */
+
+function neighboursOn(id, direction) {
+  const mine = layout[id];
+  const found = [];
+  for (const [other, state] of Object.entries(layout)) {
+    if (other === id || !state.visible || BY_ID[other].pinned) continue;
+    const overlapRows = Math.min(mine.r + mine.ch, state.r + state.ch) - Math.max(mine.r, state.r);
+    const overlapCols = Math.min(mine.c + mine.cw, state.c + state.cw) - Math.max(mine.c, state.c);
+    let touching = false;
+    if (direction.includes("e")) touching = state.c === mine.c + mine.cw && overlapRows > 0;
+    else if (direction.includes("w")) touching = state.c + state.cw === mine.c && overlapRows > 0;
+    else if (direction.includes("s")) touching = state.r === mine.r + mine.ch && overlapCols > 0;
+    else if (direction.includes("n")) touching = state.r + state.ch === mine.r && overlapCols > 0;
+    if (touching) found.push({ id: other, c: state.c, r: state.r, cw: state.cw, ch: state.ch });
+  }
+  return found;
+}
 
 function makeResizable(widget, handle, id, direction) {
   handle.addEventListener("pointerdown", (event) => {
@@ -1219,87 +1383,70 @@ function makeResizable(widget, handle, id, direction) {
     handle.setPointerCapture(event.pointerId);
     bringToFront(id);
     widget.classList.add("sizing");
+    showGrid(true);
 
-    const { W, H } = boardSize();
+    const { w, h } = cell();
     const startX = event.clientX, startY = event.clientY;
-    const left0 = layout[id].x * W, top0 = layout[id].y * H;
-    const width0 = widget.offsetWidth, height0 = widget.offsetHeight;
-    const guides = snapGuides(id);
-    const near = (value, list) => {
-      for (const guide of list) if (Math.abs(value - guide) <= SNAP) return guide;
-      return value;
-    };
+    const from = { c: layout[id].c, r: layout[id].r, cw: layout[id].cw, ch: layout[id].ch };
     const neighbours = neighboursOn(id, direction);
-    const room = neighbourRoom(neighbours, direction);
+    // How far the edge may travel before a neighbour is squeezed out.
+    const room = neighbours.length
+      ? Math.min(...neighbours.map((n) => (
+          direction.includes("e") || direction.includes("w") ? n.cw - MIN_CW : n.ch - MIN_CH)))
+      : Infinity;
 
     const move = (moveEvent) => {
-      const dx = moveEvent.clientX - startX, dy = moveEvent.clientY - startY;
-      let left = left0, top = top0, width = width0, height = height0;
+      const dc = Math.round((moveEvent.clientX - startX) / w);
+      const dr = Math.round((moveEvent.clientY - startY) / h);
+      let { c, r, cw, ch } = from;
 
       if (direction.includes("e")) {
-        width = Math.max(MIN_W, Math.min(W - left0, near(left0 + width0 + dx, guides.x) - left0));
-      }
-      if (direction.includes("s")) {
-        height = Math.max(MIN_H, Math.min(H - top0, near(top0 + height0 + dy, guides.y) - top0));
+        cw = Math.max(MIN_CW, Math.min(GRID_COLS - c, from.cw + Math.min(dc, room)));
       }
       if (direction.includes("w")) {
-        const edge = near(left0 + dx, guides.x);
-        width = Math.max(MIN_W, Math.min(left0 + width0, left0 + width0 - edge));
-        left = left0 + width0 - width;
+        const edge = Math.max(0, Math.min(from.c + from.cw - MIN_CW, from.c + Math.max(dc, -room)));
+        cw = from.c + from.cw - edge; c = edge;
+      }
+      if (direction.includes("s")) {
+        ch = Math.max(MIN_CH, Math.min(GRID_ROWS - r, from.ch + Math.min(dr, room)));
       }
       if (direction.includes("n")) {
-        const edge = near(top0 + dy, guides.y);
-        height = Math.max(MIN_H, Math.min(top0 + height0, top0 + height0 - edge));
-        top = top0 + height0 - height;
+        const edge = Math.max(0, Math.min(from.r + from.ch - MIN_CH, from.r + Math.max(dr, -room)));
+        ch = from.r + from.ch - edge; r = edge;
       }
 
-      // Do not push a neighbour below the size at which it stops being useful.
-      if (direction.includes("e")) width = Math.min(width, width0 + room);
-      if (direction.includes("w")) { const capped = Math.min(width, width0 + room);
-        left += width - capped; width = capped; }
-      if (direction.includes("s")) height = Math.min(height, height0 + room);
-      if (direction.includes("n")) { const capped = Math.min(height, height0 + room);
-        top += height - capped; height = capped; }
-
-      widget.style.left = `${left.toFixed(1)}px`;
-      widget.style.top = `${top.toFixed(1)}px`;
-      widget.style.width = `${width.toFixed(1)}px`;
-      widget.style.height = `${height.toFixed(1)}px`;
-      layout[id].x = left / W; layout[id].y = top / H;
-      layout[id].w = width / W; layout[id].h = height / H;
+      Object.assign(layout[id], { c, r, cw, ch });
+      place(id);
+      ghost(id, c, r, cw, ch);
 
       // The edge belongs to the panel on the other side of it too.
-      const shiftX = direction.includes("e") ? width - width0
-        : direction.includes("w") ? left0 - left : 0;
-      const shiftY = direction.includes("s") ? height - height0
-        : direction.includes("n") ? top0 - top : 0;
+      const shiftC = direction.includes("e") ? cw - from.cw
+        : direction.includes("w") ? from.c - c : 0;
+      const shiftR = direction.includes("s") ? ch - from.ch
+        : direction.includes("n") ? from.r - r : 0;
 
       for (const other of neighbours) {
         const state = layout[other.id];
-        if (direction.includes("e")) {
-          state.x = (other.left + shiftX) / W;
-          state.w = (other.width - shiftX) / W;
-        } else if (direction.includes("w")) {
-          state.w = (other.width - shiftX) / W;
-        } else if (direction.includes("s")) {
-          state.y = (other.top + shiftY) / H;
-          state.h = (other.height - shiftY) / H;
-        } else if (direction.includes("n")) {
-          state.h = (other.height - shiftY) / H;
-        }
+        if (direction.includes("e")) { state.c = other.c + shiftC; state.cw = other.cw - shiftC; }
+        else if (direction.includes("w")) { state.cw = other.cw - shiftC; }
+        else if (direction.includes("s")) { state.r = other.r + shiftR; state.ch = other.ch - shiftR; }
+        else if (direction.includes("n")) { state.ch = other.ch - shiftR; }
         place(other.id);
       }
 
-      if (id === "map" && player.bounds) fitMap();
-      if (neighbours.some((n) => n.id === "map") && player.bounds) fitMap();
+      if ((id === "map" || neighbours.some((n) => n.id === "map")) && player.bounds) fitMap();
     };
     const up = () => {
       handle.removeEventListener("pointermove", move);
       handle.removeEventListener("pointerup", up);
       handle.removeEventListener("pointercancel", up);
       widget.classList.remove("sizing");
+      showGrid(false);
+      hideGhost();
       saveLayout();
-      if (id === "map" && player.bundle) renderFrame(player.time);
+      const button = widget.querySelector(".size-btn");
+      if (button) button.textContent = `${layout[id].cw}×${layout[id].ch}`;
+      if (player.bundle) renderFrame(player.time);
     };
     handle.addEventListener("pointermove", move);
     handle.addEventListener("pointerup", up);
