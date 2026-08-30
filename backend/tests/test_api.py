@@ -82,11 +82,16 @@ class TestMeta:
         response = client.get("/")
         assert response.status_code == 200
         assert "Live Prediction Dashboard" in response.text
-        # One page: a circuit, a search that reaches every race, and a board of
-        # panels the viewer arranges. If one of those stops being served the
-        # page is not the dashboard any more.
+        # One page: a circuit, a search that reaches every race, a board of
+        # panels the viewer arranges, and the island that announces what just
+        # happened. If one of those stops being served the page is not the
+        # dashboard any more.
+        #
+        # Race control used to be an overlay across the bottom of the circuit,
+        # which is the part of the page it was covering; it is now announced by
+        # the island instead, so that is what this checks for.
         for marker in ('id="map"', 'id="search"', 'id="board"', 'id="countdown"',
-                       'id="rcOverlay"', 'id="panelsMenu"'):
+                       'id="island"', 'id="panelsMenu"'):
             assert marker in response.text
 
 
