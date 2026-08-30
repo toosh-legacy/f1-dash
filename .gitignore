@@ -21,3 +21,6 @@ node_modules/
 .idea/
 .DS_Store
 Thumbs.db
+
+# Working notes, not for the repo
+ENGINEERING-LOG.md
