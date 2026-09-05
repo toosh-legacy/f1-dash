@@ -24,3 +24,7 @@ Thumbs.db
 
 # Working notes, not for the repo
 ENGINEERING-LOG.md
+
+# Vercel build output
+public/
+.vercel/

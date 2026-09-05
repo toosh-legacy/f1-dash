@@ -756,6 +756,7 @@ tbody tr:hover { background: var(--panel-2); }
   <div id="boardWrap"><div id="board"></div></div>
 </main>
 
+<script src="/config.js"></script>
 <script>
 "use strict";
 
@@ -770,7 +771,7 @@ const el = (id) => document.getElementById(id);
 const svgNS = "http://www.w3.org/2000/svg";
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-let API = params.get("api") || "";
+let API = params.get("api") || window.API_BASE || "";
 let WS_BASE = "";
 
 async function detectApi() {

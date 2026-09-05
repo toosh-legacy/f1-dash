@@ -12,13 +12,29 @@ BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 
 
+def _normalise_db_url(url: str) -> str:
+    """Point a managed provider's URL at the driver actually installed.
+
+    Render, Heroku and friends hand out ``postgres://`` or ``postgresql://``.
+    SQLAlchemy resolves both to psycopg2, which is not in requirements -- psycopg
+    3 is. Rewriting the scheme here keeps the promise that moving off SQLite is
+    a connection-string change and nothing more.
+    """
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
+
 class Settings:
     """Runtime settings, sourced from the environment with development-safe defaults."""
 
     # --- Core ---------------------------------------------------------------
     # Avoid SQLite-only features anywhere in the codebase: swapping to Postgres
     # must stay a connection-string change (guide 3).
-    DATABASE_URL: str = os.getenv("F1_DATABASE_URL", f"sqlite:///{PROJECT_ROOT / 'f1_dashboard.db'}")
+    DATABASE_URL: str = _normalise_db_url(
+        os.getenv("F1_DATABASE_URL", f"sqlite:///{PROJECT_ROOT / 'f1_dashboard.db'}")
+    )
     ENV: str = os.getenv("F1_ENV", "development")
     LOG_LEVEL: str = os.getenv("F1_LOG_LEVEL", "INFO")
 
@@ -53,6 +69,16 @@ class Settings:
     # Playback frame rate. 1 Hz keeps a two-hour race under a few MB; the
     # dashboard interpolates between frames for smooth motion.
     REPLAY_FRAME_HZ: float = float(os.getenv("F1_REPLAY_HZ", "1"))
+
+    # --- Blob storage -------------------------------------------------------
+    # Model artifacts and replay gzips outlive any one container. On a laptop
+    # disk is the record ("local"); on an ephemeral host it is a cache in front
+    # of a bucket ("s3"). Credentials come from boto3's own chain, never here.
+    BLOB_BACKEND: str = os.getenv("F1_BLOB_BACKEND", "local").strip().lower()
+    S3_BUCKET: str = os.getenv("F1_S3_BUCKET", "").strip()
+    S3_PREFIX: str = os.getenv("F1_S3_PREFIX", "").strip()
+    # Set for an S3-compatible service (R2, MinIO); empty means real AWS.
+    S3_ENDPOINT_URL: str = os.getenv("F1_S3_ENDPOINT_URL", "").strip()
 
     # --- API ----------------------------------------------------------------
     CORS_ORIGINS: list[str] = [

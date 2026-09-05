@@ -48,6 +48,7 @@ from typing import Any, Callable, Iterable
 
 from app.config import settings
 from app.data.openf1_client import OpenF1Client
+from app.storage import blobs
 
 log = logging.getLogger(__name__)
 
@@ -157,8 +158,19 @@ def bundle_path(session_key: int) -> Path:
     return settings.REPLAY_DIR / f"session_{session_key}_v{BUNDLE_VERSION}.json.gz"
 
 
+def bundle_key(session_key: int) -> str:
+    """The bundle's name in blob storage -- stable across containers."""
+    return f"replays/session_{session_key}_v{BUNDLE_VERSION}.json.gz"
+
+
 def is_cached(session_key: int) -> bool:
-    return bundle_path(session_key).exists()
+    """Whether this box can serve the bundle without rebuilding it.
+
+    On the local backend that is a question about disk. On S3 it is a question
+    about the bucket, and a hit fills the disk cache on the way past, so the
+    read that follows is an ordinary file read.
+    """
+    return blobs.exists(bundle_key(session_key), bundle_path(session_key))
 
 
 def catalogue(
@@ -398,7 +410,9 @@ def bundle_bytes(session_key: int) -> bytes | None:
     client, and what gets published so other clients need not rebuild it.
     """
     path = bundle_path(session_key)
-    return path.read_bytes() if path.exists() else None
+    if not blobs.materialize(bundle_key(session_key), path):
+        return None
+    return path.read_bytes()
 
 
 def write_bundle_bytes(session_key: int, data: bytes) -> Path:
@@ -408,6 +422,7 @@ def write_bundle_bytes(session_key: int, data: bytes) -> Path:
     tmp = path.with_suffix(".tmp")
     tmp.write_bytes(data)
     tmp.replace(path)
+    blobs.publish(path, bundle_key(session_key))
     forget_bundle(session_key)
     return path
 
@@ -419,6 +434,7 @@ def _store_bundle(session_key: int, bundle: dict[str, Any]) -> Path:
     with gzip.open(tmp, "wt", encoding="utf-8") as handle:
         json.dump(bundle, handle, separators=(",", ":"))
     tmp.replace(path)
+    blobs.publish(path, bundle_key(session_key))
     forget_bundle(session_key)
     return path
 
