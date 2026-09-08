@@ -28,3 +28,7 @@ ENGINEERING-LOG.md
 # Vercel build output
 public/
 .vercel/
+
+# Playwright
+test-results/
+playwright-report/
