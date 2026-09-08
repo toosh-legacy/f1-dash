@@ -113,15 +113,6 @@ def catalogue_rows(db: DBSession) -> list[dict[str, Any]]:
     ]
 
 
-def remove(db: DBSession, session_key: int) -> bool:
-    row = _row(db, session_key)
-    if row is None:
-        return False
-    db.delete(row)
-    db.flush()
-    return True
-
-
 def _row(db: DBSession, session_key: int) -> m.ReplayBundle | None:
     return db.scalar(
         select(m.ReplayBundle).where(

@@ -142,10 +142,6 @@ class RaceStrategyModel(TabularModel):
         model._constant_only = model.estimator is None
         return model  # type: ignore[return-value]
 
-    def most_likely(self, rows: list[dict[str, float]]) -> list[str]:
-        labels = self.classes_ or STRATEGY_LABELS
-        return [labels[int(np.argmax(row))] for row in self.predict_proba(rows)]
-
     def validate(self, rows: list[dict[str, float]], labels: list[Any]) -> ValidationReport:
         known = self.classes_ or STRATEGY_LABELS
         y_true = [self.normalise_label(str(label)) for label in labels]

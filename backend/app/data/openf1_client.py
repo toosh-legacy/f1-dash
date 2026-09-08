@@ -140,16 +140,6 @@ class OpenF1Client:
         rows = self._get("sessions", session_key="latest")
         return rows[0] if rows else None
 
-    def find_session_key(self, year: int, country_or_circuit: str, session_name: str) -> int | None:
-        """Resolve an OpenF1 ``session_key`` from human-readable identifiers."""
-        for row in self.sessions(year=year, session_name=session_name):
-            haystack = " ".join(
-                str(row.get(k, "")) for k in ("country_name", "circuit_short_name", "location")
-            ).lower()
-            if country_or_circuit.lower() in haystack:
-                return int(row["session_key"])
-        return None
-
     def drivers(self, session_key: int) -> list[dict[str, Any]]:
         return self._get("drivers", session_key=session_key)
 
@@ -322,11 +312,6 @@ class OpenF1Client:
                 st.manual_override_active = bool(latest[override_field])
             if aero_field and latest.get(aero_field) is not None:
                 st.aero_mode = str(latest[aero_field])
-
-    def current_lap(self, session_key: int) -> int | None:
-        """Highest lap number seen across the field."""
-        laps = [int(r["lap_number"]) for r in self.laps(session_key) if r.get("lap_number")]
-        return max(laps) if laps else None
 
 
 def _retry_after_seconds(response: httpx.Response) -> float | None:

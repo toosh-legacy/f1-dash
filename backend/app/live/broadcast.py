@@ -58,9 +58,6 @@ class Broadcaster:
             if not self._subscribers[session_id]:
                 self._subscribers.pop(session_id, None)
 
-    def subscriber_count(self, session_id: int) -> int:
-        return len(self._subscribers.get(session_id, ()))
-
     # -- publishing --------------------------------------------------------
     async def publish(self, session_id: int, message: dict[str, Any]) -> int:
         """Publish from inside the event loop. Returns the number of receivers."""
