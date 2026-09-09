@@ -66,7 +66,9 @@ sleeping live loop is not a live loop.
 New project: <https://vercel.com/new/clone?repository-url=https://github.com/toosh-legacy/f1-dash>
 
 `vercel.json` already sets the build (`scripts/build-static.js`) and output
-directory (`public/`). Set one environment variable:
+directory (`public/`). The build copies the page, the stylesheet and the `js/`
+module directory, so nothing needs bundling -- the browser resolves the module
+graph itself. Set one environment variable:
 
 ```
 API_BASE = https://f1-dash-api.onrender.com
