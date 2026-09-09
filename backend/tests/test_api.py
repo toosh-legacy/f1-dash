@@ -82,16 +82,18 @@ class TestMeta:
         response = client.get("/")
         assert response.status_code == 200
         assert "Live Prediction Dashboard" in response.text
-        # One page: a circuit, a search that reaches every race, a board of
-        # panels the viewer arranges, and the island that announces what just
-        # happened. If one of those stops being served the page is not the
-        # dashboard any more.
+        # The markup the page ships: a search that reaches every race, a board
+        # of panels the viewer arranges, and the island that announces what
+        # just happened. If one of those stops being served the page is not
+        # the dashboard any more.
         #
-        # Race control used to be an overlay across the bottom of the circuit,
-        # which is the part of the page it was covering; it is now announced by
-        # the island instead, so that is what this checks for.
-        for marker in ('id="map"', 'id="search"', 'id="board"', 'id="countdown"',
-                       'id="island"', 'id="panelsMenu"'):
+        # The circuit and the countdown are not in this list. They are built by
+        # the page's own modules rather than written into the markup, so this
+        # checks that the entry point is served and leaves what it draws to the
+        # browser tests, which can actually see it. Both were previously
+        # asserted here and passed only because the whole script was inline.
+        for marker in ('id="search"', 'id="board"', 'id="island"',
+                       'id="panelsMenu"', 'js/boot.js'):
             assert marker in response.text
 
 

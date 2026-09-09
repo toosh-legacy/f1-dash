@@ -2,10 +2,18 @@
 
 The table is the single most important piece of judgment in this project, so it
 lives here as data that pipelines *query*, not as a comment that pipelines are
-trusted to have read. Every training pipeline calls
-:func:`training_years_for_feature` (or :func:`split_feature_names`) before it
-assembles a training matrix; :func:`assert_policy_covered` fails loudly when a
-new feature is added without a declared policy.
+trusted to have read.
+
+Two things enforce it. :func:`assert_policy_covered` runs at import of
+:mod:`app.features.engineering` and fails loudly when a feature is added
+without a declared policy, so the table cannot silently fall behind the feature
+set. And :func:`row_sample_weight`, called by
+:mod:`app.training.dataset` for every candidate training row, is what actually
+decides the row's fate: dropped when the matrix contains regime-only features
+and the row predates the reset, down-weighted to
+:data:`WEAK_TRANSFER_WEIGHT` when the carry-over is only partial, full weight
+otherwise. Those weights are handed to the estimator's ``fit``, so the policy
+reaches the model rather than stopping at a docstring.
 """
 from __future__ import annotations
 

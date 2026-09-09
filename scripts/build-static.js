@@ -20,9 +20,18 @@ const apiBase = (process.env.API_BASE || "").replace(/\/$/, "");
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
 
-for (const entry of fs.readdirSync(SOURCE)) {
-  fs.copyFileSync(path.join(SOURCE, entry), path.join(OUT, entry));
+// The dashboard is now a page, a stylesheet and a directory of ES modules, so
+// the copy has to walk rather than list.
+function copyInto(from, to) {
+  fs.mkdirSync(to, { recursive: true });
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
+    const source = path.join(from, entry.name);
+    const target = path.join(to, entry.name);
+    if (entry.isDirectory()) copyInto(source, target);
+    else fs.copyFileSync(source, target);
+  }
 }
+copyInto(SOURCE, OUT);
 fs.copyFileSync(path.join(OUT, "dashboard.html"), path.join(OUT, "index.html"));
 
 // Empty is legitimate: the page then falls back to same-origin detection.
