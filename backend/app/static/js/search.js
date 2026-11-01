@@ -10,12 +10,13 @@
 
 import { buildProgress, hideBuilding, showBuilding } from "./building.js";
 import { api, el, setStatus } from "./core.js";
-import { connectSocket } from "./live.js";
+import { refreshLiveStatus, setLiveHandler, watchLive } from "./live.js";
 import { openReplay, openUpcoming } from "./map.js";
 
 let catalogue = null;
 let upcoming = [];
 let live = null;
+let locked = null;   // a session on that OpenF1 will not show without an account
 let highlighted = -1;
 
 async function loadRaces() {
@@ -25,6 +26,8 @@ async function loadRaces() {
   ]);
   catalogue = [...built].sort((a, b) => new Date(b.date_start) - new Date(a.date_start));
   live = now && now.live && now.live.session_id ? now.live : null;
+  locked = now && now.live_watch && now.live_watch.state === "locked" ? now.live_watch : null;
+  refreshLiveStatus();
 
   // Sessions still to come are read from OpenF1's published schedule, which
   // runs to the end of the season; the local calendar is seeded and can stop
@@ -71,6 +74,12 @@ function renderResults() {
 
   if (live && matches(live, query)) {
     groups.push({ title: "Live now", rows: [{ ...live, live: true }] });
+  } else if (locked && !query) {
+    const s = locked.latest_session || {};
+    groups.push({ title: "Live now", rows: [{
+      locked: true, circuit: s.circuit || "A session is live",
+      name: "Needs an OpenF1 account to watch", date_start: s.date_start,
+    }] });
   }
   const next = upcoming.filter((round) => matches(round, query)).slice(0, query ? 20 : 4);
   if (next.length) groups.push({ title: "Next up", rows: next });
@@ -97,6 +106,7 @@ function renderResults() {
       const date = round.date_start ? new Date(round.date_start).toLocaleDateString(undefined,
         { day: "numeric", month: "short" }) : "";
       const badge = round.live ? '<span class="badge live"><i></i>Live</span>'
+        : round.locked ? '<span class="badge soon">Key needed</span>'
         : round.running ? '<span class="badge live"><i></i>On now</span>'
         : round.upcoming ?`<span class="badge soon" data-countdown="${round.date_start}">${countdownText(round.date_start)}</span>`
         : round.cached ? '<span class="badge ready">Replay</span>'
@@ -129,10 +139,12 @@ async function choose(round) {
   closePicker();
   hideBuilding();   // a different race chosen mid-build: the build carries on, unwatched
   el("search").value = "";
+  if (round.locked) { refreshLiveStatus({ check: true }); return; }
+  // A calendar entry that is on now opens live, when it is being followed.
+  if (round.running && live && !round.live) return choose({ ...live, live: true });
   if (round.live) {
     setMode("Live");
-    connectSocket(round.session_id);
-    if (round.openf1_session_key) await openReplay(round.openf1_session_key, round).catch(() => {});
+    await watchLive(round.session_id);
     return;
   }
   if (round.upcoming) { setMode("Next"); return openUpcoming(round); }
@@ -211,5 +223,8 @@ el("search").addEventListener("keydown", (event) => {
     (rows[highlighted] || rows[0]).click();
   }
 });
+
+// The Live button opens the session the same way choosing it here does.
+setLiveHandler((following) => choose({ live: true, session_id: following.session_id }));
 
 export { catalogue, choose, loadRaces, setMode, upcoming };

@@ -6,7 +6,7 @@
 
 import { bootDone, bootStage } from "./chrome.js";
 import { detectApi, setEndpoints, setStatus } from "./core.js";
-import { connectSocket, logLine } from "./live.js";
+import { logLine, watchLive } from "./live.js";
 import { openReplay, openUpcoming } from "./map.js";
 import { catalogue, loadRaces, setMode, upcoming } from "./search.js";
 
@@ -42,10 +42,7 @@ import { catalogue, loadRaces, setMode, upcoming } from "./search.js";
   if (now && now.live && now.live.session_id) {
     // A session is running: show it, and follow it.
     setMode("Live");
-    connectSocket(now.live.session_id);
-    if (now.live.openf1_session_key) {
-      await openReplay(now.live.openf1_session_key, now.live).catch(() => {});
-    }
+    await watchLive(now.live.session_id);
   } else {
     logLine("no session is running — showing the calendar");
   }

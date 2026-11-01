@@ -61,7 +61,13 @@ function surnameOf(driver) {
 
 function raceRows(lap) {
   const laps = (player.bundle && player.bundle.laps) || {};
-  const rows = laps[String(lap)] || laps["1"] || [];
+  // Live, the order for a lap lands a little after the cars start it: show
+  // the newest lap that has one rather than an empty tower.
+  const nearest = () => {
+    const known = Object.keys(laps).map(Number).filter((n) => n <= lap).sort((a, b) => b - a);
+    return known.length ? laps[String(known[0])] : null;
+  };
+  const rows = laps[String(lap)] || nearest() || laps["1"] || [];
   const ordered = [...rows].sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
   return ordered.map((row, index) => {
     const ahead = ordered[index - 1];

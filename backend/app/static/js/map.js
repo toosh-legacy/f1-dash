@@ -26,6 +26,8 @@ const player = {
   rawPath: [], rawPit: [],
   playing: false, time: 0, speed: 10, lastFrameAt: 0, lap: 0, selected: null,
   upcoming: null, framesReady: false, flag: "green",
+  /** Following a session as it runs: the playhead tracks the newest frame. */
+  live: false, sessionId: null, liveLatest: 0,
   /** Drawn sizes, in screen pixels, settled by fitMap. */
   trackWidth: 18, carRadius: 13,
 };
@@ -246,7 +248,7 @@ async function openReplay(sessionKey, meta) {
   bundle.frames = [];
   Object.assign(player, {
     bundle, sessionKey, playing: false, framesReady: false, time: 0, lap: 0,
-    upcoming: null, selected: null,
+    upcoming: null, selected: null, live: false, sessionId: null,
   });
   clearNotices();
   rcSeen = 0;
@@ -301,6 +303,103 @@ function setPlayable(ready) {
   el("scrub").disabled = !ready;
 }
 
+
+/* -- a session running now ---------------------------------------------- */
+
+/** How far behind the newest frame the live playhead runs. Positions arrive
+ *  every few seconds, and a car can only be drawn between two fixes. */
+const LIVE_DELAY_S = 6;
+
+/** Open a session as it runs, from the server's snapshot of it.
+ *
+ *  It becomes a bundle like any replay's -- drivers, circuit, frames, laps,
+ *  lap events, race control -- that grows as the socket brings more, so the
+ *  map, the tower, the flags and the probe all draw it through the same
+ *  code that plays a finished race back. */
+function openLive(state) {
+  stopCountdown();
+  document.body.dataset.view = "live";
+  resetPrediction();
+  closeProbe();
+  const session = { ...(state.session || {}), session_key: state.session_key };
+  const bundle = {
+    live: true, session, t0: state.t0,
+    drivers: state.drivers || [], track: state.track || null,
+    frames: [], frame_interval_s: state.frame_interval_s || 1, duration_s: 0,
+    total_laps: state.total_laps || 0, laps: state.laps || {},
+    race_control: state.race_control || [], lap_events: state.lap_events || [],
+    segments: state.segments || [], events: null, results: [],
+  };
+  Object.assign(player, {
+    bundle, sessionKey: state.session_key, sessionId: state.session_id, live: true,
+    playing: false, framesReady: true, time: 0, lap: state.lap || 0, liveLatest: 0,
+    upcoming: null, selected: null,
+  });
+  clearNotices();
+
+  if (bundle.track) setTrack(bundle.track, session.circuit || session.location);
+  else clearTrack();
+  setFlagTimeline(bundle.race_control);
+  buildCarLayer(bundle.drivers);
+  el("sessionTitle").textContent = `${session.circuit || session.location || "Live"} · ${session.name || "Session"}`;
+  setTowerSession(session, bundle.total_laps);
+  setPlayable(false);
+  el("flagStrip").style.background = FLAG_COLOURS.green;
+
+  appendLiveFrames(state.frames || []);
+  player.time = Math.max(player.liveLatest - LIVE_DELAY_S, 0);
+  rcSeen = player.time;
+  seenUpTo(player.time);
+  renderTower(Math.max(player.lap, 1));
+  renderFrame(player.time);
+  setStatus(bundle.track ? "live" : "live · no circuit map yet", "live");
+}
+
+/** New frames from the socket. Stored at their second, so a frame's index is
+ *  its time exactly as in a replay; a gap in the feed is a hole, not a shift. */
+function appendLiveFrames(frames) {
+  const bundle = player.bundle;
+  if (!bundle || !bundle.live) return;
+  const step = bundle.frame_interval_s || 1;
+  for (const frame of frames) {
+    bundle.frames[Math.round(frame.t / step)] = frame;
+    if (frame.t > player.liveLatest) player.liveLatest = frame.t;
+  }
+  bundle.duration_s = player.liveLatest;
+}
+
+/** A circuit map turned up mid-session (a layout was built for it). */
+function setLiveTrack(track) {
+  const bundle = player.bundle;
+  if (!bundle || !bundle.live) return;
+  bundle.track = track;
+  setTrack(track, bundle.session.circuit || bundle.session.location);
+  setStatus("live", "live");
+}
+
+/** Laps, session parts, flags and race control, every twenty seconds or so. */
+function updateLiveTiming(timing) {
+  const bundle = player.bundle;
+  if (!bundle || !bundle.live) return;
+  bundle.lap_events = timing.lap_events || bundle.lap_events;
+  bundle.segments = timing.segments || bundle.segments;
+  bundle.race_control = timing.race_control || bundle.race_control;
+  if (timing.total_laps) bundle.total_laps = timing.total_laps;
+  setFlagTimeline(bundle.race_control);
+  setTowerSession(bundle.session, bundle.total_laps);
+  renderTower(Math.max(player.lap, 1));
+}
+
+/** Where the live playhead should be this frame: a little behind the newest
+ *  frame, closing on it gently rather than jumping whenever a batch lands. */
+function liveTime(elapsed) {
+  const target = Math.max(player.liveLatest - LIVE_DELAY_S, 0);
+  const gap = target - player.time;
+  if (Math.abs(gap) > 10) return target;
+  const rate = 1 + Math.max(Math.min(gap * 0.15, 0.5), -0.5);
+  return Math.min(player.time + elapsed * rate, Math.max(player.liveLatest - 1, 0));
+}
+
 /* -- a race that has not ------------------------------------------------ */
 
 let countdownTimer = null;
@@ -318,7 +417,7 @@ async function openUpcoming(round) {
   document.body.dataset.view = "next";
   resetPrediction();
   closeProbe();
-  Object.assign(player, { bundle: null, upcoming: round, playing: false, selected: null });
+  Object.assign(player, { bundle: null, upcoming: round, playing: false, selected: null, live: false, sessionId: null });
   buildCarLayer([]);
   clearNotices();
   rcSeen = 0;
@@ -533,7 +632,9 @@ function renderFrame(time) {
     placeProbe(node && node.visible ? node : null, time);
   }
 
-  el("clock").textContent = `${clock(time)} / ${clock(bundle.duration_s)}`;
+  el("clock").textContent = bundle.live
+    ? `LIVE · ${clock(time)}`
+    : `${clock(time)} / ${clock(bundle.duration_s)}`;
   const scrub = el("scrub");
   scrub.value = String(Math.round(time));
   scrub.style.setProperty("--played", (time / (bundle.duration_s || 1) * 100).toFixed(2));
@@ -580,7 +681,10 @@ function announceRaceControl(upTo) {
 /* -- transport ---------------------------------------------------------- */
 
 function tick(now) {
-  if (player.playing && player.bundle) {
+  if (player.live && player.bundle) {
+    player.time = liveTime(Math.min((now - player.lastFrameAt) / 1000, 0.25));
+    renderFrame(player.time);
+  } else if (player.playing && player.bundle) {
     const elapsed = Math.min((now - player.lastFrameAt) / 1000, 0.25);
     player.time = Math.min(player.time + elapsed * player.speed, player.bundle.duration_s);
     renderFrame(player.time);
@@ -656,12 +760,16 @@ function flagGradient(bundle) {
 
 export {
   SEEK_JUMP_S,
+  appendLiveFrames,
   carNodes,
   fitMap,
+  openLive,
   openReplay,
   openUpcoming,
   player,
   renderFrame,
   selectCar,
+  setLiveTrack,
   setPlaying,
+  updateLiveTiming,
 };

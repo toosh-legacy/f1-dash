@@ -891,3 +891,38 @@ button.play:disabled { opacity: .4; cursor: default; }
 .tower-row.out { opacity: .5; }
 .tower-row.out .val .s { color: var(--dim); }
 .predict-btn[hidden] { display: none; }
+
+/* ---------- the Live button ----------
+   Red and pulsing when a session can be watched, amber when one is on but
+   OpenF1 needs an account, quiet otherwise. */
+.live-btn {
+  display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px 0 10px; flex: none;
+  border-radius: 10px; font-size: 12px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1);
+  transition: background .18s ease, color .18s ease, border-color .18s ease, transform .15s var(--spring);
+}
+.live-btn .pulse { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .6; }
+.live-btn:hover:not(:disabled) { color: var(--text); background: rgba(255,255,255,.09); }
+.live-btn:active:not(:disabled) { transform: scale(.95); }
+.live-btn:disabled { opacity: .6; cursor: progress; }
+.live-btn[data-state="live"] {
+  color: #ffd9dc; background: rgba(255,43,57,.16); border-color: rgba(255,43,57,.5);
+}
+.live-btn[data-state="live"] .pulse {
+  background: #ff2b39; opacity: 1; box-shadow: 0 0 0 0 rgba(255,43,57,.6);
+  animation: live-pulse 1.6s ease-out infinite;
+}
+.live-btn[data-state="live"].watching { background: #ff2b39; color: #fff; border-color: #ff5a65; }
+.live-btn[data-state="live"].watching .pulse { background: #fff; }
+.live-btn[data-state="locked"] {
+  color: #ffe2a8; background: rgba(224,160,32,.14); border-color: rgba(224,160,32,.45);
+}
+.live-btn[data-state="locked"] .pulse { background: #e0a020; opacity: 1; }
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255,43,57,.6); }
+  70% { box-shadow: 0 0 0 7px rgba(255,43,57,0); }
+  100% { box-shadow: 0 0 0 0 rgba(255,43,57,0); }
+}
+@media (prefers-reduced-motion: reduce) { .live-btn .pulse { animation: none !important; } }
+@media (max-width: 720px) { .live-btn .lbl { display: none; } .live-btn { padding: 0 10px; } }
+
