@@ -162,3 +162,38 @@ test.describe("The standings", () => {
     }
   });
 });
+
+test.describe("The prediction", () => {
+  test("is summoned over the map, follows the lap, and goes away", async ({ page }) => {
+    await open(page);
+    await chooseRace(page);
+    await page.locator("#scrub").evaluate((slider) => {
+      slider.value = "2400";
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    await page.locator("#predictBtn").click();
+    const sheet = page.locator("#predict");
+    await expect(sheet).toBeVisible();
+    await expect(page.locator("#predictBtn")).toHaveAttribute("aria-pressed", "true");
+    // Computed server-side on first ask, so slow the first time.
+    const rows = page.locator("#predictRows .predict-row");
+    await expect.poll(async () => rows.count(), { timeout: 60_000 }).toBeGreaterThan(15);
+    await expect(rows.first().locator(".p")).toHaveText("1");
+    const lap = await page.locator("#predictLap").textContent();
+
+    // It follows the playhead to another lap.
+    await page.locator("#scrub").evaluate((slider) => {
+      slider.value = "4200";
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await expect(page.locator("#predictLap")).not.toHaveText(lap);
+
+    // The standings are still the one static panel beside it.
+    await expect(page.locator("#tower")).toBeVisible();
+
+    await page.keyboard.press("p");
+    await expect(sheet).toBeHidden();
+    await expect(page.locator("#predictBtn")).toHaveAttribute("aria-pressed", "false");
+  });
+});

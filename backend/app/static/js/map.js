@@ -14,6 +14,7 @@
 import { setBackgroundAwake } from "./chrome.js";
 import { api, clock, el, setStatus, svgNS, when } from "./core.js";
 import { clearNotices, islandTick, notify, renderEvents, reportOvertakes, seenUpTo, worthAnnouncing } from "./notices.js";
+import { predictionReady, refreshPrediction, resetPrediction } from "./predict.js";
 import { closeProbe, openProbe, placeProbe } from "./probe.js";
 import { catalogue } from "./search.js";
 import { renderProvisional, renderTower, setTowerSession } from "./tower.js";
@@ -171,6 +172,7 @@ async function openReplay(sessionKey, meta) {
 
   stopCountdown();
   document.body.dataset.view = "replay";
+  resetPrediction();
   closeProbe();
   bundle.frames = [];
   Object.assign(player, {
@@ -216,6 +218,7 @@ async function loadFrames(sessionKey, bundle) {
 
     el("flagStrip").style.background = flagGradient(bundle);
     setPlayable(true);
+    predictionReady();
     renderFrame(player.time);
     setStatus("ready", "live");
   } catch (error) {
@@ -243,6 +246,7 @@ function stopCountdown() {
 async function openUpcoming(round) {
   stopCountdown();
   document.body.dataset.view = "next";
+  resetPrediction();
   closeProbe();
   Object.assign(player, { bundle: null, upcoming: round, playing: false, selected: null });
   buildCarLayer([]);
@@ -466,6 +470,7 @@ function renderFrame(time) {
     const previous = player.lap;
     player.lap = frame.lap;
     renderTower(frame.lap);
+    refreshPrediction();
     // Only when the backend did not supply events: a lap completed in order
     // says something about who passed whom, a scrub jump says nothing.
     if (!bundle.events && frame.lap === previous + 1) reportOvertakes(previous, frame.lap);

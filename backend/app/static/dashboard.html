@@ -71,6 +71,10 @@
       <span id="sessionTitle">Choose a race</span>
       <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" /></svg>
     </button>
+    <button id="predictBtn" class="predict-btn" aria-pressed="false" aria-controls="predict" title="Where they finish from here (P)" disabled>
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12 6 8l3 3 5-6" /><path d="M10 5h4v4" /></svg>
+      Predict
+    </button>
     <span class="status" title="connection"><span class="dot" id="dot"></span><span id="statusText">idle</span></span>
   </header>
 
@@ -87,6 +91,20 @@
     <div id="islandInner"></div>
   </div>
   <div id="islandSizer" aria-hidden="true"></div>
+
+  <!-- The prediction, summoned over the map. -->
+  <section id="predict" class="glass-chip" aria-label="prediction" hidden>
+    <div class="predict-top">
+      <div>
+        <div class="predict-kind">Prediction</div>
+        <div class="predict-lap" id="predictLap">—</div>
+      </div>
+      <button id="predictClose" class="predict-close" aria-label="close prediction">&times;</button>
+    </div>
+    <div class="predict-head" id="predictHead"></div>
+    <div id="predictRows"></div>
+    <div class="predict-foot" id="predictFoot"></div>
+  </section>
 
   <aside id="tower" class="glass-chip" aria-label="timing">
     <div class="tower-head">

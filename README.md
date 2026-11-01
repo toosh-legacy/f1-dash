@@ -257,7 +257,8 @@ cache.
 
 ## The prediction panel
 
-The redesigned page does not show this panel yet; the projection is still served
+**Predict** in the top bar (or `P`) summons it as a glass sheet over the right of
+the circuit that follows the lap under the playhead; it is served
 at `GET /replays/{key}/projection?lap=N`. It answers "who finishes where from
 here?" at a given lap, two ways that are deliberately not blended.
 
