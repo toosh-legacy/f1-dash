@@ -1,6 +1,7 @@
 """Replays: the catalogue, the bundles, and what was predicted over them."""
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -25,6 +26,7 @@ from app.models import replay_predictor
 from app.training import jobs
 
 router = APIRouter()
+log = logging.getLogger(__name__)
 
 
 @router.get("/replays", response_model=list[schemas.ReplayRoundOut], tags=["replays"])
@@ -135,6 +137,15 @@ def build_replay(session_key: int, force: bool = False) -> dict[str, Any]:
         with session_scope() as db:
             size = replay_store.publish(db, session_key, bundle)
         progress("published", {"session_key": session_key, "bytes": size})
+        # The first race built at a circuit maps its surroundings. Best
+        # effort: a replay without a map still plays.
+        try:
+            from app.data.circuits import build as circuit_builder
+
+            if circuit_builder.ensure_map(bundle):
+                progress("mapped", {"circuit": bundle["session"].get("circuit")})
+        except Exception as error:  # noqa: BLE001 - never fail a build over its map
+            log.warning("mapping the circuit of %s failed: %s", session_key, error)
         return {
             "session_key": session_key,
             "frames": len(bundle["frames"]),
@@ -301,18 +312,63 @@ def replay_prediction_coverage(
     }
 
 
+#: Circuits being mapped right now, so asking twice does not map twice.
+_mapping: set[str] = set()
+
+
 @router.get("/circuits/{circuit}/map", tags=["replays"])
-def circuit_map(circuit: str, response: Response) -> dict[str, Any]:
+def circuit_map(circuit: str, response: Response, db: DBSession = Depends(get_db)) -> Any:
     """What is around a circuit -- grass, gravel, stands, buildings, the pit
     lane -- from OpenStreetMap, in the same frame as the replay's racing line.
-    Built offline by scripts/build_circuit_maps.py."""
-    from app.data import circuits
 
-    data = circuits.find(circuit)
-    if data is None:
-        raise HTTPException(status_code=404, detail=f"no map of the surroundings at {circuit}")
-    response.headers["Cache-Control"] = "public, max-age=86400"
-    return data
+    Every replay build maps its circuit. A circuit with a built replay but no
+    map yet (built before maps existed, or the mapping failed) is mapped on
+    the spot in the background: the answer is then 202 ``{"status":
+    "mapping"}`` and the caller asks again shortly.
+    """
+    from app.data import circuits
+    from app.data.circuits import build as circuit_builder
+
+    packed = circuits.gzipped(circuit)
+    if packed is not None:
+        return Response(content=packed, media_type="application/json", headers={
+            "Content-Encoding": "gzip", "Cache-Control": "public, max-age=86400", "Vary": "Accept-Encoding",
+        })
+
+    key = circuit.strip().lower()
+    if key not in _mapping:
+        found = _bundle_at(circuit, db)
+        if found is None:
+            raise HTTPException(status_code=404, detail=f"no map of the surroundings at {circuit}")
+        _mapping.add(key)
+
+        def run(progress: jobs.ProgressReporter) -> dict[str, Any]:
+            try:
+                progress("mapping", {"circuit": circuit})
+                path = circuit_builder.ensure_map(found)
+                return {"circuit": circuit, "map": path.name if path else None}
+            finally:
+                _mapping.discard(key)
+
+        jobs.submit("circuit_map", None, run)
+    response.status_code = 202
+    response.headers["Cache-Control"] = "no-store"
+    return {"status": "mapping", "circuit": circuit}
+
+
+def _bundle_at(circuit: str, db: DBSession) -> dict[str, Any] | None:
+    """Any built replay at this circuit (a circuit does not change between visits)."""
+    wanted = circuit.strip().lower()
+    for row in replay_store.catalogue_rows(db):
+        name = (row.get("circuit") or "").lower()
+        if not name or (wanted not in name and name not in wanted):
+            continue
+        if not ensure_local(row["session_key"]):
+            continue
+        bundle = replay.load_bundle(row["session_key"])
+        if bundle is not None:
+            return bundle
+    return None
 
 
 @router.get("/layouts/{circuit}", tags=["replays"])
@@ -324,21 +380,14 @@ def circuit_layout(circuit: str, db: DBSession = Depends(get_db)) -> dict[str, A
     replay at the same track is the same layout. This is what lets an upcoming
     round show its map instead of an apology.
     """
-    wanted = circuit.strip().lower()
-    for row in replay_store.catalogue_rows(db):
-        name = (row.get("circuit") or "").lower()
-        if not name or (wanted not in name and name not in wanted):
-            continue
-        if not ensure_local(row["session_key"]):
-            continue
-        bundle = replay.load_bundle(row["session_key"])
-        if bundle is None:
-            continue
+    bundle = _bundle_at(circuit, db)
+    if bundle is not None:
+        session = bundle.get("session") or {}
         return {
-            "circuit": row.get("circuit"),
+            "circuit": session.get("circuit"),
             "track": bundle["track"],
-            "source_session_key": row["session_key"],
-            "source_date": row.get("date_start"),
+            "source_session_key": session.get("session_key"),
+            "source_date": session.get("date_start"),
         }
     raise HTTPException(
         status_code=404,

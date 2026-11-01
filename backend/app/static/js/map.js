@@ -169,13 +169,26 @@ async function loadSurroundings(circuit) {
   surroundings.data = null;
   drawSurroundings();
   if (!circuit) return;
-  try {
-    const data = await api(`/circuits/${encodeURIComponent(circuit)}/map`);
+  // A circuit raced but never mapped is mapped on the spot; the API says so
+  // ("mapping") and the map is asked for again until it lands.
+  for (let attempt = 0; attempt < MAP_ATTEMPTS; attempt += 1) {
+    let data;
+    try {
+      data = await api(`/circuits/${encodeURIComponent(circuit)}/map`);
+    } catch (_) { return; /* not mapped: the derived surroundings stay */ }
     if (surroundings.circuit !== circuit) return;
-    surroundings.data = data;
-    drawSurroundings();
-  } catch (_) { /* not mapped: the derived surroundings stay */ }
+    if (data && data.layers) {
+      surroundings.data = data;
+      drawSurroundings();
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 4000));
+    if (surroundings.circuit !== circuit) return;
+  }
 }
+
+/** How many times to ask for a map that is being built (about two minutes). */
+const MAP_ATTEMPTS = 30;
 
 function clearTrack() {
   player.bounds = null;

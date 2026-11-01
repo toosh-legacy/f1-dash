@@ -233,18 +233,26 @@ whole lap; a red flag turns it red. The feed numbers marshal sectors without
 saying where they start, so a sector is placed by sharing the lap evenly: right
 part of the circuit, not the exact post.
 
-The surroundings are built offline, once per circuit, and committed:
+Every circuit maps itself. The first replay built at a circuit also builds its
+map; a circuit raced before maps existed is mapped the first time the dashboard
+asks for it (`GET /circuits/{name}/map` answers 202 `mapping` and the page asks
+again until it lands). By hand:
 
 ```bash
-cd backend && .venv/Scripts/python scripts/build_circuit_maps.py silverstone
+cd backend && .venv/Scripts/python scripts/build_circuit_maps.py --all   # every built circuit
+cd backend && .venv/Scripts/python scripts/build_circuit_maps.py Monza --force
 ```
 
-The script downloads the area from OpenStreetMap, lays the replay's racing line
-onto OSM's raceways (ICP from many starting angles — about 2 m median miss at
-most circuits, 5 m at Silverstone), and writes the features in the feed's own
-frame to `app/data/circuits/<circuit>.json`, served by `GET /circuits/{name}/map`.
-Silverstone, the Hungaroring, Zandvoort, Austin and Mexico City are mapped; a
-circuit without a map falls back to surroundings derived from the racing line.
+`app/data/circuits/build.py` finds the venue (a table of every calendar circuit,
+then OSM's geocoder for a new one), downloads an area sized from the racing line
+(split into tiles when the API says it is too much — city circuits), lays the
+replay's racing line onto OSM's raceways (onto its roads at a street circuit
+with none) by ICP from many starting angles, and writes the features in the
+feed's own frame to `app/data/circuits/<circuit>.json`, served gzipped. A fit
+worse than 8 m is refused rather than drawn wrong. Mapped so far: Silverstone,
+Hungaroring, Zandvoort, Austin and Mexico City — about 2 m median miss each; any
+other circuit is mapped when a race there is built. A circuit with no map falls
+back to surroundings derived from the racing line.
 Map data © OpenStreetMap contributors (ODbL), credited on the page.
 
 Races, qualifying and practice all replay. A race is read lap by lap — the
