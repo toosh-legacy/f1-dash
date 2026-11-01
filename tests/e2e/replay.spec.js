@@ -81,12 +81,14 @@ test.describe("A car, picked out", () => {
     await expect(probe.locator(".gauge.speed .read")).toHaveText(/^\d+$/, { timeout: 20_000 });
     await expect(probe.locator(".gauge.gear .read")).toHaveText(/^(N|\d)$/);
 
-    // Sitting over the car: its pointer lands within the car's width.
-    const box = await probe.boundingBox();
-    const dot = await car.locator(".car-dot").boundingBox();
-    const carX = dot.x + dot.width / 2;
-    expect(carX).toBeGreaterThan(box.x - 2);
-    expect(carX).toBeLessThan(box.x + box.width + 2);
+    // Sitting over the car once it has sprung open: the car is within the
+    // card's width. Polled, because the card grows out of the car.
+    await expect.poll(async () => {
+      const box = await probe.boundingBox();
+      const dot = await car.locator(".car-dot").boundingBox();
+      const carX = dot.x + dot.width / 2;
+      return carX > box.x - 2 && carX < box.x + box.width + 2 && box.width > 250;
+    }, { timeout: 3000 }).toBe(true);
   });
 
   test("the standings row selects the same car, and escape lets go", async ({ page }) => {

@@ -186,10 +186,10 @@ button { cursor: pointer; }
   width: 7px; height: 7px; border-radius: 50%; flex: none;
   background: var(--dim); box-shadow: 0 0 8px currentColor;
 }
-.isl-dot.green   { background: var(--blue); color: var(--blue); }
+.isl-dot.green   { background: var(--green); color: var(--green); }
 .isl-dot.yellow, .isl-dot.vsc, .isl-dot.safety_car { background: var(--amber); color: var(--amber); }
 .isl-dot.red_flag { background: var(--red); color: var(--red); }
-.isl-dot.pass    { background: var(--blue); color: var(--blue); }
+.isl-dot.pass    { background: var(--accent); color: var(--accent); }
 .isl-dot.control { background: var(--red); color: var(--red); }
 .isl-dot.drop    { background: var(--amber); color: var(--amber); }
 
@@ -214,7 +214,7 @@ button { cursor: pointer; }
   position: absolute; left: 0; bottom: 0; height: 2px; width: 100%;
   transform-origin: 0 50%; transform: scaleX(0); opacity: .55;
 }
-#islandLife.pass { background: var(--blue); }
+#islandLife.pass { background: var(--accent); }
 #islandLife.control { background: var(--red); }
 #islandLife.drop { background: var(--amber); }
 
@@ -576,22 +576,24 @@ button.play:disabled { opacity: .4; cursor: default; }
 #probe {
   position: absolute; left: 0; top: 0; z-index: var(--z-probe);
   width: 318px; padding: 10px 12px 10px; border-radius: 18px;
-  background: linear-gradient(160deg, rgba(255,255,255,.14), rgba(255,255,255,.04)), rgba(14,17,22,.62);
-  backdrop-filter: blur(20px) saturate(1.7); -webkit-backdrop-filter: blur(20px) saturate(1.7);
+  background: linear-gradient(160deg, rgba(255,255,255,.13), rgba(255,255,255,.02) 60%), rgba(20,16,34,.86);
+  backdrop-filter: blur(30px) saturate(1.9); -webkit-backdrop-filter: blur(30px) saturate(1.9);
   border: 1px solid rgba(255,255,255,.18);
   box-shadow: 0 22px 44px -14px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.25);
   pointer-events: auto; will-change: transform;
-  opacity: 0; scale: .92; transition: opacity .2s ease, scale .28s var(--ease-out);
+  opacity: 0; scale: .6; filter: blur(4px);
+  transition: opacity .18s ease, scale .34s var(--spring), filter .2s ease;
   transform-origin: var(--tip, 50%) 100%;
 }
-#probe.in { opacity: 1; scale: 1; }
+#probe.in { opacity: 1; scale: 1; filter: none; }
+@media (prefers-reduced-motion: reduce) { #probe { scale: 1; filter: none; transition: opacity .15s ease; } }
 #probe.below { transform-origin: var(--tip, 50%) 0; }
 #probe[hidden] { display: none; }
 /* The pointer down to the car. */
 #probe::after {
   content: ""; position: absolute; left: calc(var(--tip, 50%) - 7px); bottom: -7px;
   width: 12px; height: 12px; rotate: 45deg;
-  background: rgba(22,26,32,.9); border-right: 1px solid rgba(255,255,255,.18);
+  background: rgba(24,19,38,.95); border-right: 1px solid rgba(255,255,255,.18);
   border-bottom: 1px solid rgba(255,255,255,.18);
 }
 #probe.below::after { bottom: auto; top: -7px; rotate: 225deg; }
@@ -644,7 +646,10 @@ button.play:disabled { opacity: .4; cursor: default; }
   #topbar { position: relative; top: auto; left: auto; margin: 8px; max-width: none; order: 1;
     flex-wrap: wrap; height: auto; padding: 8px 10px; }
   .finder { width: 100%; }
-  #transport { position: relative; left: auto; right: auto; bottom: auto; margin: 0 8px 8px; order: 3; }
+  #transport { position: relative; left: auto; right: auto; bottom: auto; margin: 0 8px 8px; order: 3;
+    height: auto; flex-wrap: wrap; row-gap: 8px; padding: 10px 12px; }
+  #transport .scrubwrap { order: 5; flex-basis: 100%; }
+  #transport .clock { flex: 1; }
   #tower { position: relative; top: auto; right: auto; bottom: auto; width: auto; margin: 0 8px 8px;
     max-height: none; order: 4; }
   #countdown { inset: 0; }

@@ -70,8 +70,10 @@ function openProbe(driver) {
 function closeProbe() {
   current = null;
   const probe = el("probe");
-  probe.hidden = true;
   probe.classList.remove("in");
+  // Shrink back into the car rather than blink out; a card opened again in
+  // the meantime cancels the hide.
+  setTimeout(() => { if (!current) probe.hidden = true; }, 200);
 }
 
 /** Put the card over the car and fill it for this moment of the race. */
