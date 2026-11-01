@@ -116,6 +116,9 @@ def _build(session_key: int, client: OpenF1Client, report: Progress) -> dict[str
         "version": BUNDLE_VERSION,
         "built_at": datetime.now(timezone.utc).isoformat(),
         "session": meta,
+        # The wall-clock instant t=0 stands for, so anything fetched later by
+        # date -- telemetry, for one -- can be put on the replay's clock.
+        "t0": round(t0, 3),
         "duration_s": round(t1 - t0, 1),
         "frame_interval_s": round(1.0 / settings.REPLAY_FRAME_HZ, 3),
         "total_laps": max((int(l["lap_number"]) for l in laps if l.get("lap_number")), default=0),

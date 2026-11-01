@@ -15,6 +15,7 @@ from app.api.deps import (
     require_built_replay,
 )
 from app.data import replay
+from app.data.replay import telemetry
 from app.db import projection_store
 from app.db import replay_store
 from app.db import session_index
@@ -118,6 +119,35 @@ def get_replay_meta(session_key: int) -> Response:
 def get_replay_frames(session_key: int) -> Response:
     """Just the playback frames -- the other 439 KB."""
     return _bundle_part_response(session_key, "frames")
+
+
+@router.get("/replays/{session_key}/telemetry/{number}", tags=["replays"])
+def get_replay_telemetry(
+    session_key: int, number: int, t: float = Query(ge=0)
+) -> dict[str, Any]:
+    """One car's telemetry for the window of replay time containing ``t``.
+
+    Fetched from OpenF1 on first ask and kept, so following a car costs one
+    upstream request per two minutes of race. ``rows`` are
+    ``[t, speed_kph, gear, throttle_pct, brake_pct, rpm]``; ``from``/``to``
+    bound the window so the caller knows when to ask for the next.
+    """
+    require_built_replay(session_key)
+    bundle = replay.load_bundle(session_key)
+    t0 = telemetry.session_t0(bundle or {})
+    if t0 is None:
+        raise HTTPException(status_code=404, detail="replay has no start time to align telemetry to")
+    index = telemetry.window_index(t)
+    try:
+        rows = telemetry.telemetry_window(session_key, number, index, t0)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"telemetry unavailable: {exc}")
+    return {
+        "number": number,
+        "from": index * telemetry.WINDOW_S,
+        "to": (index + 1) * telemetry.WINDOW_S,
+        "rows": rows,
+    }
 
 
 def _bundle_part_response(session_key: int, part: str) -> Response:
