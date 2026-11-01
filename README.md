@@ -219,9 +219,17 @@ drawn large on it — white-edged asphalt over a simplified map of its own
 surroundings (infield, grass, run-off, perimeter road), every car a disc in its
 team's colour moving around the lap it actually drove and peeling into the pit
 lane when it stopped. Scrub and play at up to 60x; the standings down the left
-edge follow the playhead (interval in a race, gap and elimination gap in
-qualifying, best lap in practice), and race-control calls and overtakes surface
-in the island at the top.
+edge follow the playhead, and race-control calls and overtakes surface in the
+island at the top.
+
+Races, qualifying and practice all replay. A race is read lap by lap — the
+standings show the interval to the car ahead. Practice and qualifying are read
+by the clock from every timed lap: practice ranks best laps so far; qualifying
+ranks within the current part (Q1/Q2/Q3, cut from race control's start and
+chequered-flag calls), marks the drop zone with the margin to the line, and
+keeps the cars already knocked out classified below. A session that overran its
+slot — a delayed Q2 pushes Q3 past the hour — now plays to its last chequered
+flag instead of stopping at the schedule.
 
 Click a car, or its row in the standings, and a small glass card rides above it
 with speed, gear, throttle, brake and longitudinal g. Those come from OpenF1's

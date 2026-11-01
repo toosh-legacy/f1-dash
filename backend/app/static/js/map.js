@@ -17,7 +17,7 @@ import { clearNotices, islandTick, notify, renderEvents, reportOvertakes, seenUp
 import { predictionReady, refreshPrediction, resetPrediction } from "./predict.js";
 import { closeProbe, openProbe, placeProbe } from "./probe.js";
 import { catalogue } from "./search.js";
-import { renderProvisional, renderTower, setTowerSession } from "./tower.js";
+import { renderProvisional, renderTower, setTowerSession, tickTower } from "./tower.js";
 
 const player = {
   bundle: null, sessionKey: null, path: [], pitPath: [], bounds: null,
@@ -465,6 +465,7 @@ function renderFrame(time) {
   player.flag = frame.flag || "green";   // the island shows it
 
   announceRaceControl(time);
+  tickTower(time);
   if (bundle.events) renderEvents(time);
   if (frame.lap !== player.lap) {
     const previous = player.lap;

@@ -72,6 +72,8 @@ _TEAM_FALLBACK_COLOUR = "9AA0A6"
 META_FIELDS = (
     "version", "built_at", "session", "duration_s", "frame_interval_s",
     "total_laps", "drivers", "track", "laps", "race_control", "events", "results",
+    # Practice and qualifying only: the parts of the session and every timed lap.
+    "t0", "segments", "lap_events",
 )
 
 # --------------------------------------------------------------------------

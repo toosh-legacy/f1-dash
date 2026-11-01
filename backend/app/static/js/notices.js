@@ -72,9 +72,13 @@ function islandIdleContent() {
   const flag = player.flag || "green";
   const total = player.bundle.total_laps || 0;
   const lap = player.lap || 0;
+  // Practice and qualifying run on the clock: the part and the time left,
+  // as the standings read it, instead of a lap count nobody is racing to.
+  const where = player.bundle.lap_events
+    ? escapeText(document.getElementById("towerLap").textContent || "")
+    : `lap ${lap}${total ? ` / ${total}` : ""}`;
   return `<span class="isl-dot ${flag}"></span>`
-    + `<span class="isl-idle">${flag.replace("_", " ")} · `
-    + `<b>lap ${lap}${total ? ` / ${total}` : ""}</b></span>`;
+    + `<span class="isl-idle">${flag.replace("_", " ")} · <b>${where}</b></span>`;
 }
 
 /** Measure what the island would have to become, then become it. */

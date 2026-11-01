@@ -774,3 +774,8 @@ button.play:disabled { opacity: .4; cursor: default; }
 @media (prefers-reduced-transparency: reduce) {
   #topbar, #transport, #predict, #tower { backdrop-filter: blur(22px); background-color: rgba(18,14,30,.92); }
 }
+
+/* Knocked out in an earlier part of qualifying: classified, set back. */
+.tower-row.out { opacity: .5; }
+.tower-row.out .val .s { color: var(--dim); }
+.predict-btn[hidden] { display: none; }

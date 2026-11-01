@@ -197,3 +197,36 @@ test.describe("The prediction", () => {
     await expect(page.locator("#predictBtn")).toHaveAttribute("aria-pressed", "false");
   });
 });
+
+test.describe("Qualifying", () => {
+  // Silverstone qualifying, built locally: Q1, Q2 and Q3 on the clock.
+  const QUALI = 11322;
+
+  async function openAt(page, seconds) {
+    await page.goto(`/?session=${QUALI}`);
+    await expect(page.locator("#playBtn")).toBeEnabled({ timeout: 30_000 });
+    await page.locator("#scrub").evaluate((slider, s) => {
+      slider.value = String(s);
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+    }, seconds);
+  }
+
+  test("ranks Q1 by best lap with the drop zone marked", async ({ page }) => {
+    await openAt(page, 900);
+    await expect(page.locator("#towerLap")).toContainText("Q1");
+    await expect(page.locator("#towerLap")).toContainText("left");
+    // Six cars go home from Q1; they are the ones marked in danger.
+    await expect(page.locator(".tower-row.danger")).toHaveCount(6);
+    await expect(page.locator(".tower-row").first().locator(".val .v")).toHaveText(/^\d:\d{2}\.\d{3}$/);
+    // Prediction is about races; it is not offered here.
+    await expect(page.locator("#predictBtn")).toBeHidden();
+  });
+
+  test("ends Q3 with the knocked-out cars classified below", async ({ page }) => {
+    await openAt(page, 4150);
+    await expect(page.locator("#towerLap")).toContainText("Q3");
+    await expect(page.locator(".tower-row:not(.out)")).toHaveCount(10);
+    await expect(page.locator(".tower-row.out")).toHaveCount(12);
+    await expect(page.locator(".tower-row.danger")).toHaveCount(0);
+  });
+});

@@ -30,8 +30,14 @@ from app.data.replay.narrative import (
     _pit_windows,
     _stint_index,
 )
+from app.data.replay import timing
 from app.data.replay.shared import Progress, ReplayUnavailable, _parse_date, log
 from app.data.replay.store import _store_bundle, load_bundle
+
+
+#: How long after the last chequered flag a session that overran is kept, for
+#: the cars' in-laps.
+FINISH_GRACE_S = 120.0
 
 
 # --------------------------------------------------------------------------
@@ -94,7 +100,7 @@ def _build(session_key: int, client: OpenF1Client, report: Progress) -> dict[str
     if not any(traces.values()):
         raise ReplayUnavailable(f"session {session_key} has no position feed")
 
-    t0, t1 = _session_window(traces, meta)
+    t0, t1 = _session_window(traces, meta, timing.session_end(control))
     report("track", None)
     track = _build_track(traces, laps, pits)
 
@@ -130,6 +136,10 @@ def _build(session_key: int, client: OpenF1Client, report: Progress) -> dict[str
         "events": _overtakes(frames, lap_state, len(path)),
         "results": _final_order(positions, laps, drivers),
     }
+    if str(meta.get("type") or "") != "Race":
+        # Practice and qualifying are read by the clock, not lap by lap.
+        bundle["segments"] = timing.segments(control, t0, str(meta.get("name") or ""))
+        bundle["lap_events"] = timing.lap_events(laps, t0)
     path = _store_bundle(session_key, bundle)
     report("stored", {"path": path.name, "bytes": path.stat().st_size})
     return bundle
@@ -192,12 +202,17 @@ def _clean_trace(rows: Iterable[dict[str, Any]]) -> list[tuple[float, float, flo
 
 
 def _session_window(
-    traces: dict[int, list[tuple[float, float, float]]], meta: dict[str, Any]
+    traces: dict[int, list[tuple[float, float, float]]],
+    meta: dict[str, Any],
+    finished: float | None = None,
 ) -> tuple[float, float]:
     """The clock the replay runs on.
 
     Cars report from the garage hours -- sometimes a day -- before the lights go
     out, so the scheduled window is authoritative and the traces only narrow it.
+    The one exception is the end: a session that overran its slot -- a delayed
+    Q2 pushes Q3 well past the hour -- ends at its last chequered flag (plus a
+    couple of minutes for the in-laps), not at the schedule.
     """
     starts = [t[0][0] for t in traces.values() if t]
     ends = [t[-1][0] for t in traces.values() if t]
@@ -208,7 +223,10 @@ def _session_window(
     if scheduled_start:
         first = max(first, scheduled_start.timestamp())
     if scheduled_end:
-        last = min(last, scheduled_end.timestamp())
+        allowed = scheduled_end.timestamp()
+        if finished is not None:
+            allowed = max(allowed, finished + FINISH_GRACE_S)
+        last = min(last, allowed)
     if last <= first:  # implausible metadata; trust the feed
         return min(starts), max(ends)
     return first, last

@@ -12,6 +12,7 @@
 
 import { api, el } from "./core.js";
 import { player, renderFrame } from "./map.js";
+import { positionOf } from "./tower.js";
 
 const windows = new Map();   // `${session}:${car}:${index}` -> Promise<rows>
 const WINDOW_S = 120;
@@ -104,9 +105,9 @@ function fill(time) {
   const sample = sampleAt(sessionKey, number, time);
   const foot = el("probeFoot");
   const pos = el("probePos");
-  const rows = player.bundle && player.bundle.laps && player.bundle.laps[String(player.lap || 1)];
-  const mine = rows && rows.find((r) => r.number === number);
-  if (pos) pos.textContent = mine && mine.position ? `P${mine.position}` : "";
+  // Whatever the standings say -- a race lap, or a best lap against the clock.
+  const place = positionOf(number);
+  if (pos) pos.textContent = place ? `P${place}` : "";
 
   if (sample === "loading") { if (foot) foot.textContent = "reading telemetry…"; return; }
   if (!sample) {

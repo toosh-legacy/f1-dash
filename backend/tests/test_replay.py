@@ -236,7 +236,7 @@ class TestCatalogue:
         def close(self):
             pass
 
-    def test_only_races_that_have_started_are_listed(self):
+    def test_only_sessions_that_have_started_are_listed(self):
         rows = [
             {"session_key": 1, "session_type": "Race", "session_name": "Race",
              "date_start": "2026-03-08T04:00:00+00:00", "circuit_short_name": "Melbourne"},
@@ -250,7 +250,8 @@ class TestCatalogue:
             client=self._Client(rows),
             now=datetime(2026, 8, 28, tzinfo=timezone.utc),
         )
-        assert [entry.session_key for entry in entries] == [1]
+        # Newest first; the race not yet run is left out, qualifying is in.
+        assert [entry.session_key for entry in entries] == [1, 3]
 
     def test_sprints_can_be_excluded(self):
         rows = [

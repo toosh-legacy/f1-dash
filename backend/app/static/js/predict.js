@@ -29,7 +29,7 @@ function fetchProjection(lap) {
 }
 
 function setOpen(want) {
-  open = want && !!player.bundle;
+  open = want && !!player.bundle && !el("predictBtn").disabled;
   const sheet = el("predict");
   el("predictBtn").setAttribute("aria-pressed", String(open));
   if (open) {
@@ -138,8 +138,12 @@ function resetPrediction() {
   el("predictBtn").disabled = true;
 }
 
+/** The projection reasons about a race -- stops owed, laps to go -- so it is
+ *  offered for races only. */
 function predictionReady() {
-  el("predictBtn").disabled = false;
+  const race = String((player.bundle && player.bundle.session.type) || "") === "Race";
+  el("predictBtn").disabled = !race;
+  el("predictBtn").hidden = !race;
 }
 
 el("predictBtn").addEventListener("click", (event) => { event.stopPropagation(); setOpen(!open); });

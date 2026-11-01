@@ -49,6 +49,11 @@ class ReplayCatalogueEntry:
         }
 
 
+#: The kinds of session a replay can be built for. Practice and qualifying
+#: carry their own timing (see :mod:`timing`); the map is the same for all.
+REPLAYABLE_TYPES = ("Race", "Qualifying", "Practice")
+
+
 def catalogue(
     year: int | None = None,
     *,
@@ -56,7 +61,8 @@ def catalogue(
     include_sprints: bool = True,
     now: datetime | None = None,
 ) -> list[ReplayCatalogueEntry]:
-    """Every race that has already run this season, newest first.
+    """Every race, qualifying and practice session that has already run this
+    season, newest first.
 
     A session only appears once it has actually started; a scheduled round has
     nothing to replay.
@@ -73,9 +79,9 @@ def catalogue(
 
     entries: list[ReplayCatalogueEntry] = []
     for row in rows:
-        # OpenF1 types both the grand prix and the sprint as "Race"; they are
-        # told apart by name.
-        if row.get("session_type") != "Race":
+        # OpenF1 types both the grand prix and the sprint as "Race" (and both
+        # qualifying sessions as "Qualifying"); they are told apart by name.
+        if row.get("session_type") not in REPLAYABLE_TYPES:
             continue
         name = str(row.get("session_name") or "Race")
         if not include_sprints and name.lower().startswith("sprint"):
