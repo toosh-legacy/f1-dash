@@ -22,7 +22,9 @@ class _FakeOpenF1:
 
 
 @pytest.fixture(autouse=True)
-def _empty_cache():
+def _empty_cache(monkeypatch, tmp_path):
+    # Windows are kept on disk as well as in memory; give each test its own.
+    monkeypatch.setattr(telemetry.settings, "REPLAY_DIR", tmp_path)
     telemetry._cache.clear()
     yield
     telemetry._cache.clear()
@@ -71,3 +73,23 @@ def test_window_index_follows_the_window_length():
     assert telemetry.window_index(0) == 0
     assert telemetry.window_index(telemetry.WINDOW_S - 0.1) == 0
     assert telemetry.window_index(telemetry.WINDOW_S) == 1
+
+
+def test_a_window_survives_a_restart(monkeypatch):
+    fake = _FakeOpenF1([{"date": "2026-07-05T14:02:01+00:00", "speed": 300, "n_gear": 8,
+                         "throttle": 100, "brake": 0, "rpm": 11000}])
+    monkeypatch.setattr(telemetry, "_openf1", lambda: fake)
+    first = telemetry.telemetry_window(11326, 16, 1, T0)
+    telemetry._cache.clear()   # the process restarts; the disk does not
+    assert telemetry.telemetry_window(11326, 16, 1, T0) == first
+    assert len(fake.calls) == 1
+
+
+def test_a_window_still_filling_in_is_not_kept(monkeypatch):
+    now = datetime.now(timezone.utc)
+    fake = _FakeOpenF1([])
+    monkeypatch.setattr(telemetry, "_openf1", lambda: fake)
+    # The window ending now: a live session, still being written.
+    telemetry.telemetry_window(9001, 1, 0, now - telemetry.timedelta(seconds=telemetry.WINDOW_S))
+    telemetry.telemetry_window(9001, 1, 0, now - telemetry.timedelta(seconds=telemetry.WINDOW_S))
+    assert len(fake.calls) == 2

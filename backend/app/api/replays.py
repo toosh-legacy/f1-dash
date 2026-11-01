@@ -17,6 +17,7 @@ from app.api.deps import (
 )
 from app.data import replay
 from app.data.replay import telemetry
+from app.data.openf1_client import OpenF1Locked
 from app.db import projection_store
 from app.db import replay_store
 from app.db import session_index
@@ -200,8 +201,16 @@ def get_replay_telemetry(
     ``[t, speed_kph, gear, throttle_pct, brake_pct, rpm]``; ``from``/``to``
     bound the window so the caller knows when to ask for the next.
     """
-    require_built_replay(session_key)
-    bundle = replay.load_bundle(session_key)
+    # A session being followed live has no bundle yet; its feed knows when
+    # the session's clock started, which is all a window needs.
+    from app.live.feed import feed_for_key
+
+    feed = None if ensure_local(session_key) else feed_for_key(session_key)
+    if feed is not None:
+        bundle = {"t0": feed.t0}
+    else:
+        require_built_replay(session_key)
+        bundle = replay.load_bundle(session_key)
     t0 = telemetry.session_t0(bundle or {})
     if t0 is None:
         raise HTTPException(status_code=404, detail="replay has no start time to align telemetry to")
@@ -209,7 +218,16 @@ def get_replay_telemetry(
     try:
         rows = telemetry.telemetry_window(session_key, number, index, t0)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"telemetry unavailable: {exc}")
+        # 503 with the reason, so the probe can say it rather than show dashes.
+        locked = isinstance(exc, OpenF1Locked)
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "reason": "locked" if locked else "upstream",
+                "message": "OpenF1 is closed to unauthenticated callers while a session is live"
+                if locked else f"OpenF1 did not answer: {exc}",
+            },
+        )
     return {
         "number": number,
         "from": index * telemetry.WINDOW_S,

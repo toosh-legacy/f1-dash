@@ -262,6 +262,16 @@ def layout_for(circuit: str) -> tuple[dict[str, Any], int] | None:
     return bundle["track"], int((bundle.get("session") or {}).get("session_key") or 0)
 
 
+def feed_for_key(session_key: int) -> "PositionFeed | None":
+    """The running feed following OpenF1 session ``session_key``, if any."""
+    for status in feeds.statuses():
+        if status.get("session_key") == session_key:
+            found = feeds.get(int(status["session_id"]))
+            if isinstance(found, PositionFeed) and found.t0 is not None:
+                return found
+    return None
+
+
 #: Running feeds, one per session. Kept apart from the prediction loops,
 #: which are also keyed by session: a race runs one of each.
 feeds = LoopManager()
