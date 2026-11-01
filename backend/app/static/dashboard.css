@@ -752,7 +752,11 @@ button.play:disabled { opacity: .4; cursor: default; }
   .predict-row { animation: none; }
 }
 @media (max-width: 900px) {
-  #predict { position: fixed; left: 12px; right: 12px; top: 72px; bottom: auto; width: auto; max-height: 70vh; }
+  /* On a phone it rises from the bottom as a sheet, dense enough to read. */
+  #predict { position: fixed; left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; max-height: 72vh;
+    background: linear-gradient(160deg, rgba(255,255,255,.1), rgba(255,255,255,.02) 50%), rgba(18,14,30,.95);
+    translate: 0 40px; }
+  #predict.open { translate: 0 0; }
 }
 
 /* ---------- liquid refraction ----------
