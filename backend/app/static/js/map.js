@@ -275,13 +275,37 @@ async function openUpcoming(round) {
 
 function tickCountdown(iso) {
   const remaining = new Date(iso).getTime() - Date.now();
-  if (remaining <= 0) { el("cdTime").textContent = "under way"; return; }
+  if (remaining <= 0) { setDigits(el("cdTime"), "under way"); return; }
   const seconds = Math.floor(remaining / 1000);
   const days = Math.floor(seconds / 86400);
   const hours = String(Math.floor((seconds % 86400) / 3600)).padStart(2, "0");
   const minutes = String(Math.floor((seconds % 3600) / 60)).padStart(2, "0");
   const secs = String(seconds % 60).padStart(2, "0");
-  el("cdTime").textContent = (days ? `${days}d ` : "") + `${hours}:${minutes}:${secs}`;
+  setDigits(el("cdTime"), (days ? `${days}d ` : "") + `${hours}:${minutes}:${secs}`);
+}
+
+/** Write the countdown a character at a time, so only the digits that
+ *  changed roll over -- the seconds every tick, the minutes once a minute --
+ *  instead of the whole clock being replaced. */
+function setDigits(node, text) {
+  const cells = node.querySelectorAll("span");
+  if (cells.length !== text.length) {
+    node.textContent = "";
+    for (const char of text) {
+      const cell = document.createElement("span");
+      cell.textContent = char;
+      node.append(cell);
+    }
+    return;
+  }
+  [...text].forEach((char, index) => {
+    const cell = cells[index];
+    if (cell.textContent === char) return;
+    cell.textContent = char;
+    cell.classList.remove("roll");
+    void cell.offsetWidth;   // restart the animation
+    cell.classList.add("roll");
+  });
 }
 
 /** The grid as it stands before a session that has not run: the last
