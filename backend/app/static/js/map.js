@@ -1,10 +1,11 @@
 /* The circuit, the cars on it, and playing a race back over both.
  *
  * The circuit is the whole page now: it is drawn as large as the space beside
- * the timing tower allows, over a simplified map of its own surroundings --
- * infield grass, the run-off band, a perimeter service road -- all derived
- * from the reconstructed racing line, because the replay carries no
- * geographic reference to lay a real map under it.
+ * the timing tower allows, over a map of its real surroundings -- grass,
+ * gravel, stands, buildings, the other tarmac on site -- taken from
+ * OpenStreetMap and laid into the feed's frame offline (see
+ * backend/scripts/build_circuit_maps.py). A circuit without one falls back to
+ * surroundings derived from the racing line itself.
  *
  * Drawing is two jobs kept apart: the circuit is laid down once when a race is
  * opened (and again on resize), and the cars are moved over it on every frame
@@ -15,6 +16,7 @@ import { setBackgroundAwake } from "./chrome.js";
 import { api, clock, el, setStatus, svgNS, when } from "./core.js";
 import { clearNotices, islandTick, notify, renderEvents, reportOvertakes, seenUpTo, worthAnnouncing } from "./notices.js";
 import { predictionReady, refreshPrediction, resetPrediction } from "./predict.js";
+import { clearFlags, layoutFlags, renderFlags, setFlagTimeline } from "./flags.js";
 import { closeProbe, openProbe, placeProbe } from "./probe.js";
 import { catalogue } from "./search.js";
 import { renderProvisional, renderTower, setTowerSession, tickTower } from "./tower.js";
@@ -36,10 +38,12 @@ function fitTransform(bounds, box) {
   const scale = Math.min(box.width / spanX, box.height / spanY);
   const left = box.left + (box.width - spanX * scale) / 2;
   const bottom = box.top + (box.height + spanY * scale) / 2;   // y grows up in the feed
-  return (x, y) => [
+  const project = (x, y) => [
     left + (x - bounds.min_x) * scale,
     bottom - (y - bounds.min_y) * scale,
   ];
+  project.scale = scale;   // screen pixels per feed unit (a decimetre)
+  return project;
 }
 
 function toPathData(points, close) {
@@ -74,6 +78,7 @@ function fitMap() {
   const width = Math.max(stage.clientWidth, 200);
   const height = Math.max(stage.clientHeight, 200);
   el("map").setAttribute("viewBox", `0 0 ${width} ${height}`);
+  el("mapBase").setAttribute("viewBox", `0 0 ${width} ${height}`);
 
   const area = drawableBox(width, height);
   // Big, with a small margin: the circuit is the only thing on the page.
@@ -109,6 +114,7 @@ function fitMap() {
   set("runoff", loop, trackWidth * 2.4);
   set("pitEdge", pit, trackWidth * 0.62 + 3);
   set("pitSurface", pit, trackWidth * 0.62);
+  set("pitMark", pit, Math.max(1, trackWidth * 0.06));
   set("trackEdge", loop, trackWidth + 4);
   set("trackSurface", loop, trackWidth);
   set("trackSheen", loop, Math.max(1, trackWidth * 0.08));
@@ -125,22 +131,72 @@ function fitMap() {
   line.setAttribute("stroke-width", Math.max(4, trackWidth * 0.36));
 
   for (const node of carNodes.values()) node.dot.setAttribute("r", carRadius);
+
+  player.project = project;
+  drawSurroundings();
+  layoutFlags(player.path, trackWidth);
+}
+
+/* -- the real surroundings ------------------------------------------------ */
+
+const surroundings = { circuit: null, data: null };
+
+/** How wide, in metres, the lines on the base map are drawn. Areas are
+ *  filled; these are the things OSM maps as a centre line. */
+const LINE_WIDTH_M = { road: 5, tarmac: 11 };
+
+function drawSurroundings() {
+  const data = surroundings.data;
+  const project = player.project;
+  document.body.classList.toggle("has-osm", !!data);
+  el("osmCredit").hidden = !data;
+  for (const layer of ["grass", "wood", "water", "paved", "gravel", "road", "tarmac", "building", "stand"]) {
+    const node = el(`osm-${layer}`);
+    const shapes = data && project ? data.layers[layer] || [] : [];
+    const closed = !(layer in LINE_WIDTH_M);
+    node.setAttribute("d", shapes.map((shape) => toPathData(shape.map(([x, y]) => project(x, y)), closed)).join(" "));
+    if (!closed && project) {
+      node.setAttribute("stroke-width", Math.max(1, LINE_WIDTH_M[layer] * 10 * project.scale).toFixed(2));
+    }
+  }
+}
+
+/** Fetch what is around this circuit, if it has been mapped, and draw it
+ *  under the track. A circuit with no map keeps the derived surroundings. */
+async function loadSurroundings(circuit) {
+  if (circuit === surroundings.circuit) { drawSurroundings(); return; }
+  surroundings.circuit = circuit;
+  surroundings.data = null;
+  drawSurroundings();
+  if (!circuit) return;
+  try {
+    const data = await api(`/circuits/${encodeURIComponent(circuit)}/map`);
+    if (surroundings.circuit !== circuit) return;
+    surroundings.data = data;
+    drawSurroundings();
+  } catch (_) { /* not mapped: the derived surroundings stay */ }
 }
 
 function clearTrack() {
   player.bounds = null;
+  player.project = null;
+  surroundings.circuit = null;
+  surroundings.data = null;
+  drawSurroundings();
+  clearFlags();
   for (const id of ["infield", "serviceRoad", "serviceRoadCut", "grass", "runoff",
-    "pitEdge", "pitSurface", "trackEdge", "trackSurface", "trackSheen"]) {
+    "pitEdge", "pitSurface", "pitMark", "trackEdge", "trackSurface", "trackSheen"]) {
     el(id).setAttribute("d", "");
   }
   el("startLine").setAttribute("x1", 0); el("startLine").setAttribute("x2", 0);
 }
 
-function setTrack(track) {
+function setTrack(track, circuit) {
   player.rawPath = track.path;
   player.rawPit = track.pit_path || [];
   player.bounds = track.bounds;
   fitMap();
+  loadSurroundings(circuit);
 }
 
 let resizeQueued = false;
@@ -183,7 +239,8 @@ async function openReplay(sessionKey, meta) {
   rcSeen = 0;
   seenUpTo(0);
 
-  setTrack(bundle.track);
+  setTrack(bundle.track, bundle.session.circuit || bundle.session.location);
+  setFlagTimeline(bundle.race_control || []);
   buildCarLayer(bundle.drivers);
 
   const session = bundle.session;
@@ -260,7 +317,8 @@ async function openUpcoming(round) {
   let laid = false;
   try {
     const layoutData = await api(`/layouts/${encodeURIComponent(round.circuit)}`);
-    setTrack(layoutData.track);
+    setTrack(layoutData.track, round.circuit);
+    setFlagTimeline([]);
     laid = true;
   } catch (_) {
     clearTrack();
@@ -298,6 +356,7 @@ function setDigits(node, text) {
     for (const char of text) {
       const cell = document.createElement("span");
       cell.textContent = char;
+      if (char === ":" || char === " ") cell.className = "sep";
       node.append(cell);
     }
     return;
@@ -351,6 +410,7 @@ function buildCarLayer(drivers) {
     group.setAttribute("tabindex", "0");
     group.setAttribute("aria-label", `${driver.name || driver.code}, show telemetry`);
     group.dataset.number = String(driver.number);
+    group.style.setProperty("--team", driver.colour || "#888");
 
     const halo = document.createElementNS(svgNS, "circle");
     halo.setAttribute("class", "car-halo");
@@ -441,12 +501,14 @@ function renderFrame(time) {
 
     let x, y;
     const inPit = Array.isArray(here);
+    node.progress = null;
     if (inPit) {
       [x, y] = pointAt(player.pitPath.length ? player.pitPath : player.path, here[1]);
     } else {
       const there = next ? next.cars[number] : undefined;
       const progress = (typeof there === "number") ? blendProgress(here, there, alpha, loop) : here;
       [x, y] = pointAt(player.path, progress);
+      node.progress = progress;   // where on the lap, for the flags
     }
     node.x = x; node.y = y;
     node.group.classList.toggle("pit", inPit);
@@ -463,6 +525,7 @@ function renderFrame(time) {
   scrub.value = String(Math.round(time));
   scrub.style.setProperty("--played", (time / (bundle.duration_s || 1) * 100).toFixed(2));
   player.flag = frame.flag || "green";   // the island shows it
+  renderFlags(time, player.flag, (number) => carNodes.get(String(number))?.progress ?? null);
 
   announceRaceControl(time);
   tickTower(time);

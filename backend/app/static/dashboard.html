@@ -33,11 +33,20 @@
   </filter>
 </svg>
 
-<!-- The light the glass bends. Without something behind it, glass is just grey. -->
-<div id="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
+<!-- What the glass bends: Spa in the wet, out of focus. -->
+<div id="backdrop" aria-hidden="true"></div>
 
 <main id="glass">
   <div id="stage">
+    <!-- The circuit's real surroundings, from OpenStreetMap: drawn once per
+         circuit and never touched by playback, so it sits on its own layer. -->
+    <svg id="mapBase" aria-hidden="true">
+      <g id="osm">
+        <path id="osm-grass" /><path id="osm-wood" /><path id="osm-water" />
+        <path id="osm-paved" /><path id="osm-gravel" /><path id="osm-road" />
+        <path id="osm-tarmac" /><path id="osm-building" /><path id="osm-stand" />
+      </g>
+    </svg>
     <svg id="map" preserveAspectRatio="xMidYMid meet" aria-label="circuit map">
       <defs>
         <pattern id="chequer" width="6" height="6" patternUnits="userSpaceOnUse">
@@ -60,18 +69,48 @@
         <path id="grass" filter="url(#soften)" />
         <path id="runoff" />
       </g>
-      <path id="pitEdge" /><path id="pitSurface" />
-      <path id="trackEdge" /><path id="trackSurface" /><path id="trackSheen" />
+      <path id="pitEdge" /><path id="pitSurface" /><path id="pitMark" />
+      <path id="trackEdge" />
+      <!-- The flags, painted onto the white edge of the section they cover. -->
+      <g id="flagEdges"></g>
+      <path id="trackSurface" /><path id="trackSheen" />
       <line id="startLine" />
+      <g id="marshals"></g>
       <g id="cars"></g>
     </svg>
 
     <div id="countdown" hidden>
-      <div class="c" id="cdCircuit"></div>
-      <div class="k" id="cdKind">lights out in</div>
-      <div class="t" id="cdTime">—</div>
-      <div class="w" id="cdWhen"></div>
+      <div class="cd-plate">
+        <div class="c" id="cdCircuit"></div>
+        <div class="k" id="cdKind">lights out in</div>
+        <div class="t" id="cdTime" role="timer">—</div>
+        <div class="w" id="cdWhen"></div>
+      </div>
     </div>
+
+    <!-- A replay being built: the circuit drawing itself while the feed
+         comes in, and how far along the build is. -->
+    <div id="building" hidden role="status" aria-live="polite">
+      <div class="build-plate">
+        <svg class="build-art" viewBox="0 0 120 80" aria-hidden="true">
+          <path class="build-ghost" id="buildGhost" />
+          <path class="build-trace" id="buildTrace" pathLength="100" />
+          <circle class="build-car" r="3.2"><animateMotion id="buildMotion" dur="2.6s" repeatCount="indefinite" /></circle>
+        </svg>
+        <div class="build-title" id="buildTitle">Building the replay</div>
+        <ol class="build-steps" id="buildSteps">
+          <li data-step="session">Session</li>
+          <li data-step="timing">Timing</li>
+          <li data-step="locations">Car positions</li>
+          <li data-step="frames">Frames</li>
+          <li data-step="stored">Saving</li>
+        </ol>
+        <div class="build-bar"><i id="buildBar"></i></div>
+        <div class="build-detail" id="buildDetail">asking OpenF1…</div>
+      </div>
+    </div>
+
+    <div id="osmCredit" hidden>© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors</div>
 
     <!-- The selected car's numbers, held over the car itself. -->
     <div id="probe" hidden role="dialog" aria-label="car telemetry"></div>

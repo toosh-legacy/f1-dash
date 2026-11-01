@@ -8,6 +8,7 @@
  * says what you are watching is the thing you press to watch something else.
  */
 
+import { buildProgress, hideBuilding, showBuilding } from "./building.js";
 import { api, el, setStatus } from "./core.js";
 import { connectSocket } from "./live.js";
 import { openReplay, openUpcoming } from "./map.js";
@@ -126,6 +127,7 @@ function setMode(mode) {
 
 async function choose(round) {
   closePicker();
+  hideBuilding();   // a different race chosen mid-build: the build carries on, unwatched
   el("search").value = "";
   if (round.live) {
     setMode("Live");
@@ -141,19 +143,24 @@ async function choose(round) {
 
 async function buildThenOpen(round) {
   setStatus(`building ${round.circuit}…`);
+  showBuilding(round);
   try {
     const job = await api(`/replays/${round.session_key}/build`, { method: "POST" });
     for (;;) {
       const record = await api(`/jobs/${job.job_id}`);
       setStatus(`${record.stages[record.stages.length - 1] || "working"}…`);
+      buildProgress(record);
       if (record.status === "succeeded") break;
       if (record.status === "failed") throw new Error(record.error || "build failed");
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
     }
     round.cached = true;
+    buildProgress({ stages: ["published"] });
     await openReplay(round.session_key, round);
+    hideBuilding();
     loadRaces();
   } catch (error) {
+    hideBuilding();
     setStatus(error.message, "error");
   }
 }

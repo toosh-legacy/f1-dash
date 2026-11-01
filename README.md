@@ -214,13 +214,38 @@ measured to be one.
 
 ## The race map
 
-The dashboard is one sheet of liquid glass with a violet accent. The circuit is
-drawn large on it — white-edged asphalt over a simplified map of its own
-surroundings (infield, grass, run-off, perimeter road), every car a disc in its
-team's colour moving around the lap it actually drove and peeling into the pit
-lane when it stopped. Scrub and play at up to 60x; the standings down the left
-edge follow the playhead, and race-control calls and overtakes surface in the
-island at the top.
+The dashboard is one sheet of dark liquid glass over a blurred photograph, with
+violet kept for the controls. The circuit is drawn large on it — white-edged
+asphalt over the circuit's real surroundings from OpenStreetMap: grass, gravel
+traps, stands (paler than the track), buildings, the other tarmac on site, and
+the pit lane drawn as a lane. Every car is a black disc ringed in its team's
+colour, moving around the lap it actually drove and peeling into the pit lane
+when it stopped. Scrub and play at up to 60x; the standings down the left edge
+follow the playhead, and race-control calls and overtakes surface in the island
+at the top.
+
+Flags are painted on the track itself. A yellow (or double yellow) turns that
+marshal sector's edge yellow with an orange marshal waving by it — two flags for
+a double, and a second marshal out at the edge when race control calls marshals
+onto the track. A waved blue flag paints the stretch around the car it was shown
+to, and follows it for a few seconds. A safety car or VSC marches amber round the
+whole lap; a red flag turns it red. The feed numbers marshal sectors without
+saying where they start, so a sector is placed by sharing the lap evenly: right
+part of the circuit, not the exact post.
+
+The surroundings are built offline, once per circuit, and committed:
+
+```bash
+cd backend && .venv/Scripts/python scripts/build_circuit_maps.py silverstone
+```
+
+The script downloads the area from OpenStreetMap, lays the replay's racing line
+onto OSM's raceways (ICP from many starting angles — about 2 m median miss at
+most circuits, 5 m at Silverstone), and writes the features in the feed's own
+frame to `app/data/circuits/<circuit>.json`, served by `GET /circuits/{name}/map`.
+Silverstone, the Hungaroring, Zandvoort, Austin and Mexico City are mapped; a
+circuit without a map falls back to surroundings derived from the racing line.
+Map data © OpenStreetMap contributors (ODbL), credited on the page.
 
 Races, qualifying and practice all replay. A race is read lap by lap — the
 standings show the interval to the car ahead. Practice and qualifying are read
@@ -259,9 +284,11 @@ curl http://localhost:8000/replays                       # what is built
 npm run check:replay                                     # verify one end to end
 ```
 
-The **Replays** tab lists every race that has run this season and builds any of
-them on demand — one background job, a few minutes, then it plays instantly from
-cache.
+The picker lists every race that has run this season and builds any of them on
+demand — one background job, a few minutes, then it plays instantly from cache.
+While it builds, a card over the map shows the circuit tracing itself, the step
+the build is on and how many cars' positions are in (the job record now carries
+the latest stage's `detail`).
 
 ## The prediction panel
 
