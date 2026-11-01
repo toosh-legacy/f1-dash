@@ -301,6 +301,20 @@ def replay_prediction_coverage(
     }
 
 
+@router.get("/circuits/{circuit}/map", tags=["replays"])
+def circuit_map(circuit: str, response: Response) -> dict[str, Any]:
+    """What is around a circuit -- grass, gravel, stands, buildings, the pit
+    lane -- from OpenStreetMap, in the same frame as the replay's racing line.
+    Built offline by scripts/build_circuit_maps.py."""
+    from app.data import circuits
+
+    data = circuits.find(circuit)
+    if data is None:
+        raise HTTPException(status_code=404, detail=f"no map of the surroundings at {circuit}")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return data
+
+
 @router.get("/layouts/{circuit}", tags=["replays"])
 def circuit_layout(circuit: str, db: DBSession = Depends(get_db)) -> dict[str, Any]:
     """The drawn shape of a circuit, from whichever race happens to have one.
