@@ -15,7 +15,10 @@ from app.db import models as m
 from app.db import replay_store
 from app.db import session_index
 from app.db.database import get_db
+from app.data.openf1_client import auth
 from app.live.base import loops
+from app.live.director import director
+from app.live.feed import feeds
 from app.models import calibration
 from app.training import jobs
 
@@ -71,7 +74,8 @@ def now(db: DBSession = Depends(get_db)) -> dict[str, Any]:
     """
     moment = datetime.now(timezone.utc)
 
-    running = loops.statuses()
+    # A practice session has a position feed and no prediction loop.
+    running = loops.statuses() or feeds.statuses()
     live = None
     if running:
         status = running[0]
@@ -104,6 +108,13 @@ def now(db: DBSession = Depends(get_db)) -> dict[str, Any]:
         "regs_regime": settings.CURRENT_REGS_REGIME,
         "season": settings.CURRENT_SEASON,
         "live": live,
+        "live_watch": {
+            "state": director.state,
+            "message": director.message,
+            "latest_session": director.latest,
+            "openf1_signed_in": auth.status()["signed_in"],
+            "openf1_configured": auth.configured,
+        },
         "next_session": _session_brief(upcoming),
         "last_session": _session_brief(previous),
         "latest_replay": built[0] if built else None,

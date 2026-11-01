@@ -53,6 +53,9 @@ class RaceLoop(LiveLoop):
         self._last_lap: int | None = None
         self._last_rc_state: rc.RC | None = None
         self._seen_rc_messages: set[str] = set()
+        #: The running order at the end of every lap so far, for a viewer who
+        #: joins mid-race (``GET /sessions/{id}/live/state``).
+        self.orders: dict[int, list[dict[str, Any]]] = {}
 
     def poll_once(self) -> None:
         # 1. Race control first, and pushed immediately on change.
@@ -68,6 +71,8 @@ class RaceLoop(LiveLoop):
         self._last_lap = lap
         self.status.last_context = f"lap_{lap}"
         order = _running_order(states)
+        if order:
+            self.orders[lap] = order
         predictions = self.predict_lap(lap, states, state)
         if predictions or order:
             self.publish(race_update(

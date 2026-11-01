@@ -23,6 +23,8 @@ from app.config import settings
 from app.db.database import init_db
 from app.live.base import loops
 from app.live.broadcast import broadcaster
+from app.live.director import director
+from app.live.feed import feeds
 from app.training import jobs
 
 logging.basicConfig(
@@ -40,9 +42,13 @@ async def lifespan(_app: FastAPI):
     # Background threads publish into this loop; capture it once at startup.
     broadcaster.bind_loop(asyncio.get_running_loop())
     log.info("API ready (regime %s, season %s)", settings.CURRENT_REGS_REGIME, settings.CURRENT_SEASON)
+    if settings.LIVE_AUTOSTART:
+        director.start()
     try:
         yield
     finally:
+        director.stop()
+        feeds.stop_all()
         loops.stop_all()
         jobs.shutdown()
 

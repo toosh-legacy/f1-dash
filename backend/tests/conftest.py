@@ -12,6 +12,9 @@ _TMP = Path(tempfile.mkdtemp(prefix="f1dash-tests-"))
 os.environ.setdefault("F1_DATABASE_URL", f"sqlite:///{_TMP / 'test.db'}")
 os.environ.setdefault("F1_MODEL_DIR", str(_TMP / "artifacts"))
 os.environ.setdefault("F1_FASTF1_CACHE", str(_TMP / "cache"))
+# Tests must never start watching OpenF1 for a live session.
+os.environ.setdefault("F1_LIVE_AUTOSTART", "false")
+os.environ.setdefault("F1_OPENF1_USERNAME", "")
 
 from app.db import models as m  # noqa: E402
 from app.db.database import Base, SessionLocal, engine  # noqa: E402
