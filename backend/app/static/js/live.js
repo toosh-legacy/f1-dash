@@ -4,21 +4,16 @@
  * plus race-control calls as they happen.
  */
 
-import { bodies } from "./board.js";
 import { endpoint, setStatus } from "./core.js";
-import { player, renderOrder } from "./map.js";
+import { player } from "./map.js";
+import { renderTower } from "./tower.js";
 import { notify, worthAnnouncing } from "./notices.js";
 
 let socket = null;
 
 function logLine(message) {
-  const body = bodies.log;
-  if (!body) return;
-  if (!body.id) body.id = "log";
-  const line = document.createElement("div");
-  line.textContent = `${new Date().toLocaleTimeString()}  ${message}`;
-  body.prepend(line);
-  while (body.children.length > 150) body.lastChild.remove();
+  // The feed panel is gone from the page; the console keeps the log.
+  console.debug(`[live] ${new Date().toLocaleTimeString()}  ${message}`);
 }
 
 /** Follow a session that is running now.
@@ -50,7 +45,7 @@ function connectSocket(sessionId) {
           player.bundle.laps = player.bundle.laps || {};
           player.bundle.laps[String(message.lap_number)] = message.order;
           player.lap = message.lap_number;
-          renderOrder(message.lap_number);
+          renderTower(message.lap_number);
         }
         break;
       }

@@ -214,11 +214,32 @@ measured to be one.
 
 ## The race map
 
-The dashboard opens on the most recent race with a replay built: the circuit
-drawn as a glowing mustard outline, every car a dot in its team's colour, moving
-around the lap it actually drove, peeling into the pit lane when it stopped.
-Scrub, play at up to 60x, and the running order, flag state and race-control log
-follow the playhead.
+The dashboard is one sheet of liquid glass with a violet accent. The circuit is
+drawn large on it — white-edged asphalt over a simplified map of its own
+surroundings (infield, grass, run-off, perimeter road), every car a disc in its
+team's colour moving around the lap it actually drove and peeling into the pit
+lane when it stopped. Scrub and play at up to 60x; the standings down the left
+edge follow the playhead (interval in a race, gap and elimination gap in
+qualifying, best lap in practice), and race-control calls and overtakes surface
+in the island at the top.
+
+Click a car, or its row in the standings, and a small glass card rides above it
+with speed, gear, throttle, brake and longitudinal g. Those come from OpenF1's
+`car_data` feed, fetched for the selected car only, two minutes at a time:
+
+```bash
+curl "http://localhost:8000/replays/11326/telemetry/16?t=3000"
+```
+
+The public feed reports brake as on/off rather than a pressure, and carries
+nothing on the battery, so neither is shown.
+
+The session title in the top bar opens the race picker: anything live now, the
+next sessions with a running countdown (from OpenF1's published schedule, via
+`GET /schedule`), and every race that has run. Choosing an upcoming session
+shows its circuit, if one has been built before, under the countdown.
+
+`?session=<key>` opens a particular built replay directly.
 
 None of that geometry is shipped with the project. OpenF1's `location` feed
 gives raw track X/Y per car, and `app/data/replay.py` turns a finished session
@@ -236,8 +257,9 @@ cache.
 
 ## The prediction panel
 
-The tab pinned to the right edge answers "who finishes where from here?" at the
-lap under the playhead, two ways that are deliberately not blended.
+The redesigned page does not show this panel yet; the projection is still served
+at `GET /replays/{key}/projection?lap=N`. It answers "who finishes where from
+here?" at a given lap, two ways that are deliberately not blended.
 
 **The projection** starts from where the cars actually are — track position is
 the strongest single predictor of a finishing order — and corrects it with the

@@ -5,7 +5,6 @@
  * a card in the corner, which does not.
  */
 
-import { bodies } from "./board.js";
 import { el, when } from "./core.js";
 import { SEEK_JUMP_S, player } from "./map.js";
 
@@ -43,27 +42,10 @@ function clearNotices() {
   renderNotices();
 }
 
-function renderNotices() {
-  const container = bodies.notify;
-  if (el("notifCount")) el("notifCount").textContent = String(notices.length);
-  if (!container) return;
-  if (!notices.length) {
-    container.innerHTML = '<div class="empty">Nothing yet. Overtakes and race control land here.</div>';
-    return;
-  }
-  container.textContent = "";
-  for (const notice of notices) {
-    const row = document.createElement("div");
-    row.className = `notif ${notice.kind}`;
-    row.innerHTML = `<span class="edge"></span>
-      <span class="txt">
-        <span class="when">${notice.stamp}</span>
-        <b>${notice.title}</b>
-        <small title="${(notice.detail || "").replace(/"/g, "&quot;")}">${notice.detail || ""}</small>
-      </span>`;
-    container.append(row);
-  }
-}
+/** There is no notifications panel any more -- the island is the feed -- so
+ *  the list only exists to stop the same call being announced twice running.
+ *  Kept as a function because the map and the socket both call it. */
+function renderNotices() {}
 
 /* -- the island -----------------------------------------------------------
    Everything the page announces comes through here: the replay's own events,

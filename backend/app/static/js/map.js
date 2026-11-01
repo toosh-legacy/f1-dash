@@ -1,52 +1,43 @@
 /* The circuit, the cars on it, and playing a race back over both.
  *
- * The bundle arrives as a reconstructed track and a few thousand frames of
- * progress along it. Drawing is therefore two jobs kept apart: the circuit is
- * laid down once when a race is opened, and the cars are moved over it on
- * every frame -- so playback touches transforms rather than rebuilding paths.
+ * The circuit is the whole page now: it is drawn as large as the space beside
+ * the timing tower allows, over a simplified map of its own surroundings --
+ * infield grass, the run-off band, a perimeter service road -- all derived
+ * from the reconstructed racing line, because the replay carries no
+ * geographic reference to lay a real map under it.
+ *
+ * Drawing is two jobs kept apart: the circuit is laid down once when a race is
+ * opened (and again on resize), and the cars are moved over it on every frame
+ * by transform alone, so playback never rebuilds a path.
  */
 
-import { bodies, layout } from "./board.js";
 import { setBackgroundAwake } from "./chrome.js";
 import { api, clock, el, setStatus, svgNS, when } from "./core.js";
 import { clearNotices, islandTick, notify, renderEvents, reportOvertakes, seenUpTo, worthAnnouncing } from "./notices.js";
-import { projectionCache, refreshProjection, renderProjection } from "./prediction.js";
-import { catalogue, upcoming } from "./search.js";
+import { closeProbe, openProbe, placeProbe } from "./probe.js";
+import { catalogue } from "./search.js";
+import { renderProvisional, renderTower, setTowerSession } from "./tower.js";
 
 const player = {
   bundle: null, sessionKey: null, path: [], pitPath: [], bounds: null,
+  rawPath: [], rawPit: [],
   playing: false, time: 0, speed: 10, lastFrameAt: 0, lap: 0, selected: null,
-  upcoming: null,
+  upcoming: null, framesReady: false, flag: "green",
+  /** Drawn sizes, in screen pixels, settled by fitMap. */
+  trackWidth: 18, carRadius: 13,
 };
 
-function mapMarkup() {
-  return `
-    <div id="mapWrap">
-      <svg id="map" preserveAspectRatio="xMidYMid meet">
-        <path id="trackGlow" /><path id="trackHalo" />
-        <path id="pitLine" /><path id="pitSurface" />
-        <path id="trackLine" /><path id="trackSurface" />
-        <line id="startLine" />
-        <g id="cars"></g>
-        <g id="carLabels"></g>
-      </svg>
-      <div id="countdown" hidden>
-        <div class="k" id="cdKind">lights out in</div>
-        <div class="t" id="cdTime">—</div>
-        <div class="w" id="cdWhen"></div>
-      </div>
-    </div>`;
-}
+/* -- fitting the circuit to the page ------------------------------------ */
 
-function fitTransform(bounds, width, height, pad) {
+function fitTransform(bounds, box) {
   const spanX = Math.max(bounds.max_x - bounds.min_x, 1);
   const spanY = Math.max(bounds.max_y - bounds.min_y, 1);
-  const scale = Math.min((width - pad * 2) / spanX, (height - pad * 2) / spanY);
-  const offsetX = (width - spanX * scale) / 2;
-  const offsetY = (height - spanY * scale) / 2;
+  const scale = Math.min(box.width / spanX, box.height / spanY);
+  const left = box.left + (box.width - spanX * scale) / 2;
+  const bottom = box.top + (box.height + spanY * scale) / 2;   // y grows up in the feed
   return (x, y) => [
-    offsetX + (x - bounds.min_x) * scale,
-    height - offsetY - (y - bounds.min_y) * scale,
+    left + (x - bounds.min_x) * scale,
+    bottom - (y - bounds.min_y) * scale,
   ];
 }
 
@@ -56,32 +47,92 @@ function toPathData(points, close) {
     + (close ? " Z" : "");
 }
 
-/** Redraw the circuit into whatever space the panel currently has.
- *  Called on load, on resize and whenever the map panel is resized. */
+/** The part of the stage the circuit may use: everything inside the glass that
+ *  the top bar, the timing tower and the transport do not cover. Measured off
+ *  the real elements, so moving any of them in CSS moves the circuit too. */
+function drawableBox(width, height) {
+  const stage = el("stage").getBoundingClientRect();
+  const rel = (node) => {
+    const r = node && !node.hidden ? node.getBoundingClientRect() : null;
+    return r && r.width ? { left: r.left - stage.left, right: r.right - stage.left,
+      top: r.top - stage.top, bottom: r.bottom - stage.top } : null;
+  };
+  const top = rel(el("topbar")), tower = rel(el("tower")), foot = rel(el("transport"));
+  const wide = width > 900;
+  const left = wide && tower ? tower.right : 0;   // the standings hold the left edge
+  const right = width;
+  const upper = top ? top.bottom : 0;
+  const lower = foot ? foot.top : height;
+  return { left, top: upper, width: Math.max(right - left, 120), height: Math.max(lower - upper, 120) };
+}
+
+/** Redraw the circuit into whatever space the page currently has. */
 function fitMap() {
-  const wrap = el("mapWrap");
-  if (!wrap || !player.bounds) return;
-  const width = Math.max(wrap.clientWidth, 200);
-  const height = Math.max(wrap.clientHeight, 200);
+  const stage = el("stage");
+  if (!stage || !player.bounds) return;
+  const width = Math.max(stage.clientWidth, 200);
+  const height = Math.max(stage.clientHeight, 200);
   el("map").setAttribute("viewBox", `0 0 ${width} ${height}`);
 
-  const project = fitTransform(player.bounds, width, height, 22);
+  const area = drawableBox(width, height);
+  // Big, with a small margin: the circuit is the only thing on the page.
+  const trackWidth = Math.round(Math.max(12, Math.min(24, Math.min(area.width, area.height) * 0.024)));
+  const carRadius = Math.round(trackWidth * 0.78);
+  const pad = carRadius + 18;
+  const box = {
+    left: area.left + pad, top: area.top + pad,
+    width: area.width - pad * 2, height: area.height - pad * 2,
+  };
+  player.trackWidth = trackWidth;
+  player.carRadius = carRadius;
+  stage.style.setProperty("--track-w", `${trackWidth}px`);
+  stage.style.setProperty("--car-r", `${carRadius}px`);
+
+  const project = fitTransform(player.bounds, box);
   player.path = player.rawPath.map(([x, y]) => project(x, y));
   player.pitPath = player.rawPit.map(([x, y]) => project(x, y));
 
-  for (const id of ["trackGlow", "trackHalo", "trackLine", "trackSurface"]) {
-    el(id).setAttribute("d", toPathData(player.path, true));
-  }
-  el("pitLine").setAttribute("d", toPathData(player.pitPath, false));
-  el("pitSurface").setAttribute("d", toPathData(player.pitPath, false));
+  const loop = toPathData(player.path, true);
+  const pit = toPathData(player.pitPath, false);
+  const set = (id, d, stroke) => {
+    const node = el(id);
+    node.setAttribute("d", d);
+    if (stroke != null) node.setAttribute("stroke-width", stroke);
+  };
+  // The surroundings, widest first. Each is the same racing line at a
+  // different width, which is what a simplified map of a circuit mostly is.
+  set("infield", loop);
+  set("serviceRoad", loop, trackWidth * 7.2);
+  set("serviceRoadCut", loop, trackWidth * 7.2 - 3);
+  set("grass", loop, trackWidth * 5.2);
+  set("runoff", loop, trackWidth * 2.4);
+  set("pitEdge", pit, trackWidth * 0.62 + 3);
+  set("pitSurface", pit, trackWidth * 0.62);
+  set("trackEdge", loop, trackWidth + 4);
+  set("trackSurface", loop, trackWidth);
+  set("trackSheen", loop, Math.max(1, trackWidth * 0.08));
 
   const [sx, sy] = player.path[0];
   const [nx, ny] = player.path[1] || [sx + 1, sy];
   const angle = Math.atan2(ny - sy, nx - sx) + Math.PI / 2;
-  el("startLine").setAttribute("x1", sx + Math.cos(angle) * 8);
-  el("startLine").setAttribute("y1", sy + Math.sin(angle) * 8);
-  el("startLine").setAttribute("x2", sx - Math.cos(angle) * 8);
-  el("startLine").setAttribute("y2", sy - Math.sin(angle) * 8);
+  const half = trackWidth / 2 + 1;
+  const line = el("startLine");
+  line.setAttribute("x1", sx + Math.cos(angle) * half);
+  line.setAttribute("y1", sy + Math.sin(angle) * half);
+  line.setAttribute("x2", sx - Math.cos(angle) * half);
+  line.setAttribute("y2", sy - Math.sin(angle) * half);
+  line.setAttribute("stroke-width", Math.max(4, trackWidth * 0.36));
+
+  for (const node of carNodes.values()) node.dot.setAttribute("r", carRadius);
+}
+
+function clearTrack() {
+  player.bounds = null;
+  for (const id of ["infield", "serviceRoad", "serviceRoadCut", "grass", "runoff",
+    "pitEdge", "pitSurface", "trackEdge", "trackSurface", "trackSheen"]) {
+    el(id).setAttribute("d", "");
+  }
+  el("startLine").setAttribute("x1", 0); el("startLine").setAttribute("x2", 0);
 }
 
 function setTrack(track) {
@@ -91,19 +142,23 @@ function setTrack(track) {
   fitMap();
 }
 
-window.addEventListener("resize", () => { if (player.bounds) { fitMap(); renderFrame(player.time); } });
+let resizeQueued = false;
+window.addEventListener("resize", () => {
+  if (resizeQueued) return;
+  resizeQueued = true;
+  requestAnimationFrame(() => {
+    resizeQueued = false;
+    if (player.bounds) { fitMap(); renderFrame(player.time); }
+  });
+});
 
 /* -- a race that has run ------------------------------------------------ */
 
 /** Open a race that has run.
  *
- *  The bundle is 475 KB and 439 KB of that is playback frames -- positions,
- *  once a second, for two hours. Everything needed to put the race on screen
- *  is in the other 36 KB: the circuit, the drivers, the per-lap order, the
- *  race-control log, the overtakes and the classification. So the metadata is
- *  fetched first and drawn immediately, and the frames stream in behind it.
- *  The circuit is up in a fraction of the time, and the only thing that waits
- *  is the play button. */
+ *  The metadata (circuit, drivers, per-lap order, race control) is small and
+ *  is drawn as soon as it lands; the playback frames are most of the bundle
+ *  and stream in behind it, so the only thing that waits is the play button. */
 async function openReplay(sessionKey, meta) {
   setStatus("reading the race…");
   let bundle;
@@ -115,33 +170,27 @@ async function openReplay(sessionKey, meta) {
   }
 
   stopCountdown();
+  document.body.dataset.view = "replay";
+  closeProbe();
   bundle.frames = [];
-  player.bundle = bundle;
-  player.sessionKey = sessionKey;
-  player.playing = false;
-  player.framesReady = false;
-  player.time = 0;
-  player.lap = 0;
-  player.upcoming = null;
-  projectionCache.clear();
+  Object.assign(player, {
+    bundle, sessionKey, playing: false, framesReady: false, time: 0, lap: 0,
+    upcoming: null, selected: null,
+  });
   clearNotices();
   rcSeen = 0;
   seenUpTo(0);
-  rcShown = -1;
 
   setTrack(bundle.track);
   buildCarLayer(bundle.drivers);
 
   const session = bundle.session;
-  setTitle("map", `${session.circuit || session.location} · ${session.name}`);
+  el("sessionTitle").textContent = `${session.circuit || session.location} · ${session.name}`;
+  setTowerSession(session, bundle.total_laps);
   el("scrub").max = String(Math.round(bundle.duration_s));
-  el("flagChip").hidden = false;
-  el("countdown").hidden = true;
-  renderOrder(1);
-  renderRaceControl(0);
-  refreshProjection(1);
+  renderTower(1);
   setPlayable(false);
-  setStatus(`${session.circuit} — loading playback…`);
+  setStatus("loading playback…");
 
   loadFrames(sessionKey, bundle);
   return true;
@@ -165,20 +214,18 @@ async function loadFrames(sessionKey, bundle) {
     seenUpTo(player.time);
     clearNotices();
 
-    if (el("flagStrip")) el("flagStrip").style.background = flagGradient(bundle);
+    el("flagStrip").style.background = flagGradient(bundle);
     setPlayable(true);
     renderFrame(player.time);
-    setStatus(`${bundle.session.circuit} ready`, "live");
+    setStatus("ready", "live");
   } catch (error) {
     setStatus(`playback unavailable: ${error.message}`, "error");
   }
 }
 
 function setPlayable(ready) {
-  const button = el("playBtn");
-  if (button) button.disabled = !ready;
-  const scrub = el("scrub");
-  if (scrub) scrub.disabled = !ready;
+  el("playBtn").disabled = !ready;
+  el("scrub").disabled = !ready;
 }
 
 /* -- a race that has not ------------------------------------------------ */
@@ -195,14 +242,15 @@ function stopCountdown() {
  *  grid is expected to line up in. */
 async function openUpcoming(round) {
   stopCountdown();
-  player.bundle = null;
-  player.upcoming = round;
-  player.playing = false;
-  el("flagChip").hidden = true;
+  document.body.dataset.view = "next";
+  closeProbe();
+  Object.assign(player, { bundle: null, upcoming: round, playing: false, selected: null });
   buildCarLayer([]);
   clearNotices();
   rcSeen = 0;
-  setTitle("map", `${round.circuit} · ${round.name}`);
+  el("sessionTitle").textContent = `${round.circuit} · ${round.name}`;
+  setTowerSession({ name: round.name, type: round.name }, 0);
+  setPlayable(false);
   setStatus("not yet run");
 
   let laid = false;
@@ -211,21 +259,18 @@ async function openUpcoming(round) {
     setTrack(layoutData.track);
     laid = true;
   } catch (_) {
-    for (const id of ["trackGlow", "trackHalo", "trackLine", "trackSurface", "pitLine", "pitSurface"]) {
-      el(id).setAttribute("d", "");
-    }
-    el("startLine").setAttribute("x1", 0); el("startLine").setAttribute("x2", 0);
+    clearTrack();
   }
 
-  el("cdKind").textContent = laid ? "lights out in" : "no layout yet · lights out in";
+  el("cdCircuit").textContent = `${round.circuit} · ${round.name}`;
+  el("cdKind").textContent = /race|sprint/i.test(round.name || "") ? "lights out in" : "starts in";
+  el("countdown").classList.toggle("no-layout", !laid);
   el("cdWhen").textContent = when(round.date_start);
   el("countdown").hidden = false;
   tickCountdown(round.date_start);
   countdownTimer = setInterval(() => tickCountdown(round.date_start), 1000);
 
   await showProvisionalGrid(round);
-  renderRaceControl(0);
-  renderProjection(null);
 }
 
 function tickCountdown(iso) {
@@ -239,116 +284,95 @@ function tickCountdown(iso) {
   el("cdTime").textContent = (days ? `${days}d ` : "") + `${hours}:${minutes}:${secs}`;
 }
 
-/** The grid as it stands before a session that has not run.
- *
- *  Nobody knows the real starting order until qualifying happens, so this is
- *  the last completed race's finishing order, said plainly rather than dressed
- *  up as a prediction. */
+/** The grid as it stands before a session that has not run: the last
+ *  completed race's finishing order, said plainly rather than dressed up as a
+ *  prediction. */
 async function showProvisionalGrid(round) {
-  el("orderLap") && (el("orderLap").textContent = "provisional");
-  const container = bodies.order;
-  container.innerHTML = '<div class="empty">Looking up the last result…</div>';
-
   const previous = (catalogue || [])
     .filter((entry) => entry.cached && new Date(entry.date_start) < new Date(round.date_start))
     .sort((a, b) => new Date(b.date_start) - new Date(a.date_start))[0];
-  if (!previous) {
-    container.innerHTML = '<div class="empty">No finished race is built, so there is no order to show yet.</div>';
-    return;
-  }
+  if (!previous) { renderProvisional(null); return; }
   try {
-    // Only the classification is wanted here, so only the metadata is fetched.
     const bundle = await api(`/replays/${previous.session_key}/meta`);
-    container.textContent = "";
-    const note = document.createElement("div");
-    note.className = "side-foot";
-    note.style.borderTop = "none";
-    note.textContent = `Provisional — the order from ${bundle.session.circuit}, `
-      + `${new Date(bundle.session.date_start).toLocaleDateString()}. The grid is set in qualifying.`;
-    container.append(note);
-    for (const row of bundle.results) {
-      const node = document.createElement("div");
-      node.className = "order-row" + (row.position === 1 ? " leader" : "");
-      node.innerHTML = `
-        <span class="pos">${row.position}</span>
-        <span class="bar" style="background:${row.colour || "#666"}"></span>
-        <span class="who"><b>${row.code || row.number}</b><small>${row.team || ""}</small></span>
-        <span class="gap"><span class="t">${row.laps ?? ""}</span></span>`;
-      container.append(node);
-    }
+    renderProvisional(bundle);
   } catch (_) {
-    container.innerHTML = '<div class="empty">Could not read the last result.</div>';
+    renderProvisional(null);
   }
-}
-
-/** The map's heading is the race, not the word "Circuit", so it has to be
- *  remembered across a rebuild of the board. */
-let mapTitle = "";
-
-function setTitle(panelId, text) {
-  if (panelId === "map") mapTitle = text;
-  const widget = document.querySelector(`.widget[data-panel="${panelId}"] h2`);
-  if (widget) widget.textContent = text;
 }
 
 /* -- cars --------------------------------------------------------------- */
 
 const carNodes = new Map();
-const NAME_CLEARANCE = 54;
 
-function surnameOf(driver) {
-  const parts = String(driver.name || "").trim().split(/\s+/);
-  return (parts[parts.length - 1] || driver.code || "").toUpperCase();
+/** Black or white, whichever reads on the team's colour. */
+function inkOn(hex) {
+  const value = String(hex || "#666").replace("#", "");
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(value.slice(i, i + 2), 16) / 255);
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lum > 0.55 ? "#0b0d10" : "#ffffff";
 }
 
 function buildCarLayer(drivers) {
   const layer = el("cars");
-  const labels = el("carLabels");
   layer.textContent = "";
-  labels.textContent = "";
   carNodes.clear();
   for (const driver of drivers) {
     const group = document.createElementNS(svgNS, "g");
     group.setAttribute("class", "car");
+    group.setAttribute("role", "button");
+    group.setAttribute("tabindex", "0");
+    group.setAttribute("aria-label", `${driver.name || driver.code}, show telemetry`);
+    group.dataset.number = String(driver.number);
+
+    const halo = document.createElementNS(svgNS, "circle");
+    halo.setAttribute("class", "car-halo");
+    halo.setAttribute("fill", driver.colour);
 
     const dot = document.createElementNS(svgNS, "circle");
     dot.setAttribute("class", "car-dot");
     dot.setAttribute("fill", driver.colour);
-    dot.style.filter = `drop-shadow(0 0 4px ${driver.colour}) drop-shadow(0 0 9px ${driver.colour})`;
+    dot.setAttribute("r", player.carRadius);
 
     const label = document.createElementNS(svgNS, "text");
     label.setAttribute("class", "car-label");
+    label.setAttribute("fill", inkOn(driver.colour));
     label.textContent = driver.code;
 
-    const name = document.createElementNS(svgNS, "text");
-    name.setAttribute("class", "car-name");
-    name.setAttribute("dy", "26");
-    name.textContent = surnameOf(driver);
-
-    const tag = document.createElementNS(svgNS, "text");
-    tag.setAttribute("class", "car-tag");
-    tag.setAttribute("dy", "-19");
-
-    group.append(dot, label);
-    group.addEventListener("click", () => selectCar(driver.number));
+    group.append(halo, dot, label);
+    group.addEventListener("click", (event) => { event.stopPropagation(); selectCar(driver.number); });
+    group.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") { event.preventDefault(); selectCar(driver.number); }
+    });
     layer.append(group);
-
-    const labelGroup = document.createElementNS(svgNS, "g");
-    labelGroup.append(name, tag);
-    labels.append(labelGroup);
-    carNodes.set(String(driver.number), { group, labelGroup, dot, label, name, tag });
+    carNodes.set(String(driver.number), { group, dot, driver, x: 0, y: 0, visible: false });
   }
 }
 
+/** Pick a car to look into, or put it back. */
 function selectCar(number) {
-  player.selected = player.selected === number ? null : number;
+  const same = player.selected != null && String(player.selected) === String(number);
+  player.selected = same ? null : number;
   for (const [key, node] of carNodes) {
-    const chosen = key === String(player.selected);
-    node.group.classList.toggle("selected", chosen);
-    node.labelGroup.classList.toggle("selected", chosen);
+    node.group.classList.toggle("selected", key === String(player.selected));
+  }
+  document.querySelectorAll(".tower-row").forEach((row) => {
+    row.classList.toggle("selected", row.dataset.number === String(player.selected));
+  });
+  if (player.selected == null) closeProbe();
+  else {
+    const node = carNodes.get(String(player.selected));
+    // Keep the chosen car on top of the pack it is in.
+    if (node) node.group.parentNode.append(node.group);
+    openProbe(node ? node.driver : null);
   }
   if (player.bundle) renderFrame(player.time);
 }
+
+// Clicking the open map, away from any car, puts the card away.
+el("stage").addEventListener("click", (event) => {
+  if (event.target.closest("#probe")) return;
+  if (player.selected != null) selectCar(player.selected);
+});
 
 function pointAt(path, progress) {
   if (!path.length) return [0, 0];
@@ -379,16 +403,13 @@ function renderFrame(time) {
   if (!frame) return;
 
   const loop = player.path.length;
-  const placed = [];
   for (const [number, node] of carNodes) {
     const here = frame.cars[number];
     if (here === undefined) {
-      node.group.setAttribute("visibility", "hidden");
-      node.labelGroup.setAttribute("visibility", "hidden");
+      if (node.visible) { node.group.setAttribute("visibility", "hidden"); node.visible = false; }
       continue;
     }
-    node.group.setAttribute("visibility", "visible");
-    node.labelGroup.setAttribute("visibility", "visible");
+    if (!node.visible) { node.group.setAttribute("visibility", "visible"); node.visible = true; }
 
     let x, y;
     const inPit = Array.isArray(here);
@@ -399,153 +420,62 @@ function renderFrame(time) {
       const progress = (typeof there === "number") ? blendProgress(here, there, alpha, loop) : here;
       [x, y] = pointAt(player.path, progress);
     }
+    node.x = x; node.y = y;
     node.group.classList.toggle("pit", inPit);
-    node.dot.setAttribute("cx", x); node.dot.setAttribute("cy", y);
-    node.label.setAttribute("x", x); node.label.setAttribute("y", y);
-    node.name.setAttribute("x", x); node.name.setAttribute("y", y);
-    node.tag.setAttribute("x", x); node.tag.setAttribute("y", y);
-    node.tag.textContent = inPit ? "PIT" : "";
-    placed.push([node, x, y]);
+    node.group.setAttribute("transform", `translate(${x.toFixed(1)} ${y.toFixed(1)})`);
   }
-  hideCrowdedNames(placed);
+
+  if (player.selected != null) {
+    const node = carNodes.get(String(player.selected));
+    placeProbe(node && node.visible ? node : null, time);
+  }
 
   el("clock").textContent = `${clock(time)} / ${clock(bundle.duration_s)}`;
   const scrub = el("scrub");
   scrub.value = String(Math.round(time));
   scrub.style.setProperty("--played", (time / (bundle.duration_s || 1) * 100).toFixed(2));
-  const flag = frame.flag || "green";
-  player.flag = flag;
-  const chip = el("flagChip");
-  chip.className = `flag ${flag}`;
-  chip.textContent = flag.replace("_", " ");
-  el("lapCount").textContent = `lap ${frame.lap || 0} / ${bundle.total_laps}`;
+  player.flag = frame.flag || "green";   // the island shows it
 
-  renderRaceControl(time);
-  if (bundle.events) {
-    renderEvents(time);
-  }
+  announceRaceControl(time);
+  if (bundle.events) renderEvents(time);
   if (frame.lap !== player.lap) {
     const previous = player.lap;
     player.lap = frame.lap;
-    renderOrder(frame.lap);
+    renderTower(frame.lap);
     // Only when the backend did not supply events: a lap completed in order
     // says something about who passed whom, a scrub jump says nothing.
     if (!bundle.events && frame.lap === previous + 1) reportOvertakes(previous, frame.lap);
-    if (layout.prediction.visible) refreshProjection(frame.lap);
   }
   islandTick();   // after the lap lands, so the resting state is current
 }
 
-function hideCrowdedNames(placed) {
-  for (let index = 0; index < placed.length; index += 1) {
-    const [node, x, y] = placed[index];
-    let crowded = false;
-    for (let other = 0; other < index && !crowded; other += 1) {
-      const [, ox, oy] = placed[other];
-      crowded = Math.hypot(x - ox, y - oy) < NAME_CLEARANCE;
-    }
-    node.name.setAttribute("visibility",
-      crowded && !node.labelGroup.classList.contains("selected") ? "hidden" : "visible");
-  }
-}
-
-/* -- the running order -------------------------------------------------- */
-
-function renderOrder(lap) {
-  const container = bodies.order;
-  if (!player.bundle) return;
-  const laps = player.bundle.laps || {};
-  const rows = laps[String(lap)] || laps["1"] || [];
-  const drivers = new Map(player.bundle.drivers.map((d) => [d.number, d]));
-  if (el("orderLap")) el("orderLap").textContent = lap ? `lap ${lap}` : "—";
-  if (!rows.length) { container.innerHTML = '<div class="empty">No timing on this lap.</div>'; return; }
-
-  container.textContent = "";
-  for (const row of rows) {
-    const driver = drivers.get(row.number) || {};
-    const leading = row.position === 1;
-    const node = document.createElement("div");
-    node.className = "order-row" + (leading ? " leader" : "");
-    node.innerHTML = `
-      <span class="pos">${row.position ?? "–"}</span>
-      <span class="bar" style="background:${driver.colour || "#666"}"></span>
-      <span class="who"><b>${driver.code || row.number}</b><small>${driver.team || ""}</small></span>
-      <span class="gap">
-        ${row.compound ? `<span class="tyre ${row.compound}">${row.compound[0]}${row.tyre_age ?? ""}</span>` : ""}
-        <span class="t">${leading ? "leader"
-          : row.gap_to_leader_s != null ? `+${row.gap_to_leader_s.toFixed(1)}` : "–"}</span>
-      </span>`;
-    node.addEventListener("click", () => selectCar(row.number));
-    container.append(node);
-  }
-}
-
 /* -- race control ------------------------------------------------------- */
 
-/** How far through the race the notifications have been caught up to. */
+/** How far through the race the race-control calls have been caught up to. */
 let rcSeen = 0;
 
 /** Moving the playhead further than this in one step is a seek, not the race
- *  running. Everything crossed is still marked as seen -- it is history the
- *  moment you land past it -- but none of it is announced: dragging the scrub
- *  bar across half a grand prix should not queue forty things to be told. */
+ *  running: everything crossed is marked as seen but none of it announced. */
 const SEEK_JUMP_S = 30;
 
-/** How many calls the list is currently showing. The playhead moves sixty
- *  times a second and the list changes a few times a race, so it is rebuilt
- *  only when the count moves rather than on every frame. */
-let rcShown = -1;
-
-function renderRaceControl(upTo) {
-  const container = bodies.control;
-  if (!player.bundle) {
-    container.innerHTML = '<div class="empty">Nothing announced — this session has not run.</div>';
-    if (el("rcCount")) el("rcCount").textContent = "—";
-    rcShown = -1;
-    return;
+/** Calls from race control, announced on the island as the playhead reaches
+ *  them. There is no panel keeping them any more; the island is the feed. */
+function announceRaceControl(upTo) {
+  if (!player.bundle) return;
+  if (upTo < rcSeen || upTo - rcSeen > SEEK_JUMP_S) { rcSeen = upTo; return; }
+  for (const event of player.bundle.race_control || []) {
+    if (event.t <= rcSeen || event.t > upTo || !worthAnnouncing(event)) continue;
+    notify("control", (event.state || "note").replace("_", " ").toUpperCase(),
+      event.message || "", clock(event.t));
   }
-  const all = (player.bundle.race_control || []).filter(
-    (event) => event.t >= 0 && event.t <= player.bundle.duration_s
-  );
-  const events = all.filter((event) => event.t <= upTo);
-  if (el("rcCount")) el("rcCount").textContent = `${events.length} of ${all.length}`;
-
-  // Anything called since the last look is announced. Scrubbing backwards
-  // moves the mark rather than replaying calls already seen.
-  if (upTo < rcSeen) {
-    rcSeen = upTo;
-    rcShown = -1;
-  } else if (upTo - rcSeen > SEEK_JUMP_S) {
-    rcSeen = upTo;                       // seeked past it; already history
-  } else {
-    for (const event of events) {
-      if (event.t <= rcSeen || !worthAnnouncing(event)) continue;
-      notify("control", (event.state || "note").replace("_", " ").toUpperCase(),
-        event.message || "", clock(event.t));
-    }
-    rcSeen = upTo;
-  }
-
-  if (events.length === rcShown) return;
-  rcShown = events.length;
-
-  if (!events.length) { container.innerHTML = '<div class="empty">Nothing announced yet.</div>'; return; }
-  container.textContent = "";
-  for (const event of events.slice(-80).reverse()) {
-    const row = document.createElement("div");
-    row.className = "rc-row";
-    row.innerHTML = `<span class="at">${clock(event.t)}</span>
-      <span>${event.state ? `<span class="flag ${event.state}">${event.state.replace("_", " ")}</span>` : ""}</span>
-      <span class="msg" title="${(event.message || "").replace(/"/g, "&quot;")}">${event.message || ""}</span>`;
-    container.append(row);
-  }
+  rcSeen = upTo;
 }
 
 /* -- transport ---------------------------------------------------------- */
 
 function tick(now) {
   if (player.playing && player.bundle) {
-    const elapsed = (now - player.lastFrameAt) / 1000;
+    const elapsed = Math.min((now - player.lastFrameAt) / 1000, 0.25);
     player.time = Math.min(player.time + elapsed * player.speed, player.bundle.duration_s);
     renderFrame(player.time);
     if (player.time >= player.bundle.duration_s) setPlaying(false);
@@ -556,16 +486,47 @@ function tick(now) {
 requestAnimationFrame(tick);
 
 function setPlaying(playing) {
-  player.playing = playing && !!player.bundle;
+  player.playing = playing && !!player.bundle && player.framesReady;
   const button = el("playBtn");
-  if (button) button.textContent = player.playing ? "❚❚" : "▶";
-  if (typeof setBackgroundAwake === "function") setBackgroundAwake(!player.playing);
+  button.innerHTML = player.playing ? "&#10074;&#10074;" : "&#9654;";
+  button.setAttribute("aria-label", player.playing ? "pause" : "play");
+  setBackgroundAwake(!player.playing);
 }
+
+function seek(to) {
+  if (!player.bundle) return;
+  player.time = Math.min(Math.max(to, 0), player.bundle.duration_s);
+  renderFrame(player.time);
+}
+
+el("playBtn").addEventListener("click", () => setPlaying(!player.playing));
+el("scrub").addEventListener("input", (event) => seek(Number(event.target.value)));
 el("speed").addEventListener("change", (event) => { player.speed = Number(event.target.value); });
 
+/* The transport without having to find the scrub bar with a pointer. Typing
+   in the search box is still typing, so the keys are ignored there. */
+document.addEventListener("keydown", (event) => {
+  const target = event.target;
+  if (target && target.matches && target.matches("input, select, textarea")) return;
+  if (event.metaKey || event.ctrlKey || event.altKey) return;
+  if (event.key === "Escape" && player.selected != null) { selectCar(player.selected); return; }
+  if (!player.bundle) return;
+  const step = event.shiftKey ? 60 : 10;
+  switch (event.key) {
+    case " ":
+      if (target && target.closest && target.closest(".car, button")) return;
+      event.preventDefault(); setPlaying(!player.playing); break;
+    case "ArrowLeft":  event.preventDefault(); seek(player.time - step); break;
+    case "ArrowRight": event.preventDefault(); seek(player.time + step); break;
+    case "Home":       event.preventDefault(); seek(0); break;
+    case "End":        event.preventDefault(); seek(player.bundle.duration_s); break;
+    default: break;
+  }
+});
+
 const FLAG_COLOURS = {
-  green: "#23272e", yellow: "#3f3722", vsc: "#8a6a15",
-  safety_car: "#d69a20", red_flag: "#c0392b",
+  green: "rgba(255,255,255,.16)", yellow: "#c9a227", vsc: "#c98a15",
+  safety_car: "#e0a020", red_flag: "#e0453a",
 };
 
 /** The flag state across a whole race, as a css gradient. Hard stops: a race
@@ -588,38 +549,13 @@ function flagGradient(bundle) {
 }
 
 export {
-  FLAG_COLOURS,
-  NAME_CLEARANCE,
   SEEK_JUMP_S,
-  blendProgress,
-  buildCarLayer,
   carNodes,
-  countdownTimer,
   fitMap,
-  fitTransform,
-  flagGradient,
-  hideCrowdedNames,
-  loadFrames,
-  mapMarkup,
-  mapTitle,
   openReplay,
   openUpcoming,
   player,
-  pointAt,
-  rcSeen,
-  rcShown,
   renderFrame,
-  renderOrder,
-  renderRaceControl,
   selectCar,
-  setPlayable,
   setPlaying,
-  setTitle,
-  setTrack,
-  showProvisionalGrid,
-  stopCountdown,
-  surnameOf,
-  tick,
-  tickCountdown,
-  toPathData,
 };

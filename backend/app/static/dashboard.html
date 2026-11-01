@@ -20,44 +20,100 @@
   </div>
 </div>
 
-<canvas id="tube"></canvas>
-<div id="tubeVeil"></div>
+<!-- The light the glass bends. Without something behind it, glass is just grey. -->
+<div id="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
 
-<div id="island" class="idle" aria-live="polite">
-  <div id="islandInner"></div>
-</div>
-<div id="islandSizer" aria-hidden="true"></div>
+<main id="glass">
+  <div id="stage">
+    <svg id="map" preserveAspectRatio="xMidYMid meet" aria-label="circuit map">
+      <defs>
+        <pattern id="chequer" width="6" height="6" patternUnits="userSpaceOnUse">
+          <rect width="6" height="6" fill="#fff" />
+          <rect width="3" height="3" fill="#111" /><rect x="3" y="3" width="3" height="3" fill="#111" />
+        </pattern>
+        <!-- The service road is the edge of a wide band, not the band: the
+             inside is cut away so the map shows through it. -->
+        <mask id="roadMask" maskUnits="userSpaceOnUse" x="-5000" y="-5000" width="20000" height="20000">
+          <rect x="-5000" y="-5000" width="20000" height="20000" fill="#fff" />
+          <path id="serviceRoadCut" />
+        </mask>
+        <filter id="soften" x="-10%" y="-10%" width="120%" height="120%">
+          <feGaussianBlur stdDeviation="3" />
+        </filter>
+      </defs>
+      <g id="terrain">
+        <path id="infield" />
+        <path id="serviceRoad" mask="url(#roadMask)" />
+        <path id="grass" filter="url(#soften)" />
+        <path id="runoff" />
+      </g>
+      <path id="pitEdge" /><path id="pitSurface" />
+      <path id="trackEdge" /><path id="trackSurface" /><path id="trackSheen" />
+      <line id="startLine" />
+      <g id="cars"></g>
+    </svg>
 
-<header class="above">
-  <div class="brand"><b>F1 2026</b><span>live prediction dashboard</span></div>
-  <div class="spacer"></div>
-  <span class="pill" id="regime">regime &mdash;</span>
-  <div class="menu">
-    <button id="panelsBtn">Panels</button>
-    <div class="menu-body" id="panelsMenu" hidden></div>
-  </div>
-  <div class="status"><span class="dot" id="dot"></span><span id="statusText">idle</span></div>
-</header>
-
-<main class="above">
-  <div class="finder">
-    <div class="field">
-      <input type="search" id="search" placeholder="Search a race &mdash; circuit, country, month&hellip;" autocomplete="off" />
-      <div class="results" id="results" hidden></div>
+    <div id="countdown" hidden>
+      <div class="c" id="cdCircuit"></div>
+      <div class="k" id="cdKind">lights out in</div>
+      <div class="t" id="cdTime">—</div>
+      <div class="w" id="cdWhen"></div>
     </div>
-    <span class="pill" id="seasonPill">&mdash;</span>
-    <div class="spacer"></div>
-    <select id="speed" title="playback speed">
+
+    <!-- The selected car's numbers, held over the car itself. -->
+    <div id="probe" hidden role="dialog" aria-label="car telemetry"></div>
+  </div>
+
+  <header id="topbar" class="glass-chip">
+    <b class="brand">F1</b>
+    <button id="pickerBtn" class="picker-btn" aria-haspopup="dialog" aria-expanded="false">
+      <span class="mode-tag" id="modeTag">—</span>
+      <span id="sessionTitle">Choose a race</span>
+      <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3 4.5 6 7.5 9 4.5" /></svg>
+    </button>
+    <span class="status" title="connection"><span class="dot" id="dot"></span><span id="statusText">idle</span></span>
+  </header>
+
+  <!-- The race picker: what is live, what is next, and every race that ran. -->
+  <div id="picker" class="glass-chip" role="dialog" aria-label="choose a race" hidden>
+    <div class="finder">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" /></svg>
+      <input type="search" id="search" placeholder="Search a race…" autocomplete="off" aria-label="search a race" />
+    </div>
+    <div class="results" id="results"></div>
+  </div>
+
+  <div id="island" class="idle" aria-live="polite">
+    <div id="islandInner"></div>
+  </div>
+  <div id="islandSizer" aria-hidden="true"></div>
+
+  <aside id="tower" class="glass-chip" aria-label="timing">
+    <div class="tower-head">
+      <div>
+        <div class="tower-kind" id="towerKind">Race</div>
+        <div class="tower-lap" id="towerLap">—</div>
+      </div>
+      <div class="tower-col" id="towerCol">Interval</div>
+    </div>
+    <div id="towerRows"></div>
+  </aside>
+
+  <footer id="transport" class="glass-chip">
+    <button id="playBtn" class="play" aria-label="play" disabled>&#9654;</button>
+    <div class="scrubwrap">
+      <input type="range" id="scrub" min="0" max="100" value="0" step="1" aria-label="race time" disabled />
+      <div id="flagStrip" title="flag state through the race"></div>
+    </div>
+    <span class="clock" id="clock">0:00 / 0:00</span>
+    <select id="speed" title="playback speed" aria-label="playback speed">
       <option value="1">1&times;</option>
       <option value="4">4&times;</option>
       <option value="10" selected>10&times;</option>
       <option value="30">30&times;</option>
       <option value="60">60&times;</option>
     </select>
-    <button id="resetLayout" title="put the panels back where they started">Reset layout</button>
-  </div>
-
-  <div id="boardWrap"><div id="board"></div></div>
+  </footer>
 </main>
 
 <script src="config.js"></script>

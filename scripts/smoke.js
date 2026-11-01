@@ -63,11 +63,11 @@ async function checkDashboard() {
     const response = await fetch(`${WEB}/`);
     const html = await response.text();
     // The markup the page actually ships: a search that reaches every race, a
-    // board of panels, and the module that fills them. The circuit is drawn
+    // stage, the standings, and the module that fills them. The circuit is drawn
     // by that module rather than written here, so it is checked below by
     // fetching it -- not by looking for its id in the HTML, which passed for
     // years only because the whole script used to be inline.
-    const parts = ['id="search"', 'id="board"', 'js/boot.js'];
+    const parts = ['id="search"', 'id="stage"', 'id="tower"', 'js/boot.js'];
     report("dashboard html", response.ok && parts.every((part) => html.includes(part)));
   } catch (error) {
     report("dashboard html", false, `${error.message} (is \`npm start\` running?)`);

@@ -54,6 +54,63 @@ def list_replays(
     return listed
 
 
+#: The schedule changes a few times a season; ten minutes is fresh enough and
+#: keeps opening the race picker from costing an OpenF1 request each time.
+_SCHEDULE_TTL_S = 600
+_schedule_cache: dict[int, tuple[float, list[dict[str, Any]]]] = {}
+
+
+@router.get("/schedule", tags=["replays"])
+def schedule(year: int | None = None) -> list[dict[str, Any]]:
+    """Sessions still to come this season, soonest first, from OpenF1.
+
+    The local calendar is seeded and can run out before the season does;
+    OpenF1 publishes the whole weekend schedule ahead of time, so the race
+    picker's countdowns read from it instead.
+    """
+    import time
+    from datetime import datetime, timezone
+
+    from app.config import settings
+    from app.data.openf1_client import OpenF1Client
+    from app.data.replay.shared import _parse_date
+
+    year = year or settings.CURRENT_SEASON
+    cached = _schedule_cache.get(year)
+    if cached is None or time.monotonic() - cached[0] > _SCHEDULE_TTL_S:
+        try:
+            with OpenF1Client() as client:
+                rows = client.sessions(year=year)
+        except Exception as exc:
+            if cached is None:
+                raise HTTPException(status_code=502, detail=f"schedule unavailable: {exc}")
+            rows = cached[1]   # stale beats nothing
+        _schedule_cache[year] = (time.monotonic(), rows)
+    rows = _schedule_cache[year][1]
+
+    now = datetime.now(timezone.utc)
+    upcoming = []
+    for row in rows:
+        start = _parse_date(row.get("date_start"))
+        end = _parse_date(row.get("date_end"))
+        if start is None or row.get("is_cancelled"):
+            continue
+        if (end or start) < now:
+            continue
+        upcoming.append({
+            "session_key": row.get("session_key"),
+            "name": row.get("session_name"),
+            "type": row.get("session_type"),
+            "circuit": row.get("circuit_short_name"),
+            "country": row.get("country_name"),
+            "date_start": row.get("date_start"),
+            "date_end": row.get("date_end"),
+            "running": start <= now,
+        })
+    upcoming.sort(key=lambda r: r["date_start"])
+    return upcoming
+
+
 @router.post("/replays/{session_key}/build", response_model=schemas.JobOut, tags=["replays"])
 def build_replay(session_key: int, force: bool = False) -> dict[str, Any]:
     """Queue a replay build.

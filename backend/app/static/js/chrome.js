@@ -1,4 +1,4 @@
-/* The dead channel behind it all -- the static field and the boot sequence. */
+/* The boot sequence's dead channel, and the light behind the glass. */
 
 import { el, reducedMotion } from "./core.js";
 import { player } from "./map.js";
@@ -119,26 +119,11 @@ function staticField(canvas, scale, fps) {
   };
 }
 
-const backgroundField = staticField(el("tube"), 0.22, 12);   // a texture; twelve a second is plenty
-
-/** The dead channel goes quiet while a race is running.
- *
- *  A full-viewport canvas costs a compositing pass and a full buffer read on
- *  every frame -- together about a third of the frame budget -- and it is
- *  wallpaper at seven percent opacity. Nobody watching cars move is looking at
- *  it, so it fades out when the race plays and comes back when it stops. */
+/** The light behind the glass drifts while nothing else is moving, and holds
+ *  still while a race plays: the glass re-blurs whatever moves under it every
+ *  frame, and that frame budget belongs to the cars. */
 function setBackgroundAwake(on) {
-  const canvas = el("tube");
-  if (!canvas) return;
-  if (on) {
-    canvas.style.display = "";
-    backgroundField.wake(true);
-    requestAnimationFrame(() => { canvas.style.opacity = ""; });
-  } else {
-    canvas.style.opacity = "0";
-    backgroundField.wake(false);
-    setTimeout(() => { if (player.playing) canvas.style.display = "none"; }, 400);
-  }
+  document.body.classList.toggle("racing", !on && player.playing);
 }
 let bootField = staticField(el("bootCanvas"), 0.30);   // the whole screen; full rate
 
@@ -162,7 +147,6 @@ function bootDone() {
 setTimeout(bootDone, 12000);
 
 export {
-  backgroundField,
   bootDone,
   bootField,
   bootStage,
