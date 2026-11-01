@@ -225,20 +225,22 @@ button { cursor: pointer; }
 
 /* ---------- the light behind the glass ----------
    Glass with nothing behind it reads as grey plastic. Three large, slow,
-   heavily blurred washes of colour give it something to bend. They hold
+   soft washes of colour give it something to bend. They hold
    still while a race plays (body.racing), because the glass re-blurs
    whatever moves under it on every frame. */
 #ambient { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
 #ambient i {
-  position: absolute; border-radius: 50%; filter: blur(90px); opacity: .55;
+  position: absolute; border-radius: 50%; opacity: .95;
+  /* Soft by construction -- eased gradient stops -- rather than by a 90px blur:
+     a blur that size over a third of the screen cost most of the frame. */
   animation: drift 38s ease-in-out infinite alternate;
 }
 #ambient i:nth-child(1) { width: 62vw; height: 62vw; left: -18vw; top: -24vw;
-  background: radial-gradient(closest-side, #4b1fa8, transparent); }
+  background: radial-gradient(closest-side, rgb(75 31 168), rgb(75 31 168 / .6) 30%, rgb(75 31 168 / .22) 60%, rgb(75 31 168 / .06) 82%, transparent); }
 #ambient i:nth-child(2) { width: 54vw; height: 54vw; right: -16vw; bottom: -26vw;
-  background: radial-gradient(closest-side, #2a1f7a, transparent); animation-duration: 46s; }
+  background: radial-gradient(closest-side, rgb(42 31 122), rgb(42 31 122 / .6) 30%, rgb(42 31 122 / .22) 60%, rgb(42 31 122 / .06) 82%, transparent); animation-duration: 46s; }
 #ambient i:nth-child(3) { width: 38vw; height: 38vw; left: 34vw; top: 30vh;
-  background: radial-gradient(closest-side, #7a2a9c, transparent); opacity: .4; animation-duration: 52s; }
+  background: radial-gradient(closest-side, rgb(122 42 156), rgb(122 42 156 / .6) 30%, rgb(122 42 156 / .22) 60%, rgb(122 42 156 / .06) 82%, transparent); opacity: .7; animation-duration: 52s; }
 @keyframes drift {
   from { transform: translate3d(0, 0, 0) scale(1); }
   to   { transform: translate3d(4vw, 3vh, 0) scale(1.12); }
@@ -256,8 +258,9 @@ body.racing #ambient i { animation-play-state: paused; }
   background:
     linear-gradient(135deg, rgba(255,255,255,.09), rgba(255,255,255,.015) 38%, rgba(255,255,255,.03)),
     var(--glass);
-  backdrop-filter: blur(28px) saturate(1.7);
-  -webkit-backdrop-filter: blur(28px) saturate(1.7);
+  /* No backdrop-filter on the sheet itself: all that is behind it is the
+     ambient light, which is already soft, and blurring the whole window again
+     every frame was the second-largest cost on the page. */
   border: 1px solid var(--glass-rim);
   box-shadow:
     0 40px 90px -30px rgba(0,0,0,.8),
@@ -578,7 +581,8 @@ button.play:disabled { opacity: .4; cursor: default; }
   position: absolute; left: 0; top: 0; z-index: var(--z-probe);
   width: 318px; padding: 10px 12px 10px; border-radius: 18px;
   background: linear-gradient(160deg, rgba(255,255,255,.13), rgba(255,255,255,.02) 60%), rgba(20,16,34,.86);
-  backdrop-filter: blur(30px) saturate(1.9); -webkit-backdrop-filter: blur(30px) saturate(1.9);
+  /* Dense enough to read on its own; it moves every frame, so it is not
+     asked to re-blur what is under it every frame as well. */
   border: 1px solid rgba(255,255,255,.18);
   box-shadow: 0 22px 44px -14px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.25);
   pointer-events: auto; will-change: transform;
