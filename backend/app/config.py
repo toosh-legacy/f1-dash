@@ -12,6 +12,31 @@ BASE_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = BASE_DIR.parent
 
 
+def _load_dotenv(path: Path) -> None:
+    """Read ``KEY=VALUE`` lines from ``backend/.env`` into the environment.
+
+    Deliberately tiny rather than a dependency: no interpolation, no export
+    syntax. A variable already set in the real environment wins, so a host's
+    own configuration is never overridden by a file left on disk.
+    """
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
+            value = value[1:-1]
+        os.environ.setdefault(key.strip(), value)
+
+
+_load_dotenv(PROJECT_ROOT / ".env")
+
+
 def _normalise_db_url(url: str) -> str:
     """Point a managed provider's URL at the driver actually installed.
 
@@ -47,10 +72,39 @@ class Settings:
     FASTF1_CACHE_DIR: Path = Path(os.getenv("F1_FASTF1_CACHE", str(PROJECT_ROOT / ".fastf1_cache")))
     OPENF1_BASE_URL: str = os.getenv("F1_OPENF1_URL", "https://api.openf1.org/v1")
     OPENF1_TIMEOUT_S: float = float(os.getenv("F1_OPENF1_TIMEOUT", "10"))
+    # A paid OpenF1 account. Without one the API works between sessions only:
+    # while a session is running OpenF1 refuses every unauthenticated request
+    # (401), past sessions included. The username and password are exchanged
+    # for an hour-long bearer token server-side; neither ever reaches a browser.
+    OPENF1_USERNAME: str = os.getenv("F1_OPENF1_USERNAME", "").strip()
+    OPENF1_PASSWORD: str = os.getenv("F1_OPENF1_PASSWORD", "").strip()
+    OPENF1_TOKEN_URL: str = os.getenv("F1_OPENF1_TOKEN_URL", "https://api.openf1.org/token")
+    # Requests per rolling minute, shared by every client in the process. OpenF1
+    # allows 30/min free and 60/min to sponsors; both defaults leave headroom.
+    OPENF1_MAX_RPM: int = int(os.getenv("F1_OPENF1_MAX_RPM", "0")) or (
+        55 if os.getenv("F1_OPENF1_USERNAME", "").strip() else 28
+    )
+
+    @property
+    def openf1_authenticated(self) -> bool:
+        return bool(self.OPENF1_USERNAME and self.OPENF1_PASSWORD)
+
+    # --- Live sessions ------------------------------------------------------
+    # Watch OpenF1 for a session going live and start following it unprompted:
+    # the loops, the position feed, and the replay build once it has finished.
+    LIVE_AUTOSTART: bool = os.getenv("F1_LIVE_AUTOSTART", "true").lower() == "true"
+    LIVE_WATCH_INTERVAL_S: float = float(os.getenv("F1_LIVE_WATCH_INTERVAL", "60"))
+    # How often car positions are pulled while a session runs. OpenF1 itself
+    # lags the track by about three seconds, so faster than this buys nothing.
+    LIVE_POSITION_INTERVAL_S: float = float(os.getenv("F1_LIVE_POSITION_INTERVAL", "4"))
+    # Laps and race control, for the timing tower and the flags.
+    LIVE_TIMING_INTERVAL_S: float = float(os.getenv("F1_LIVE_TIMING_INTERVAL", "20"))
 
     # --- Live loop cadence --------------------------------------------------
-    RACE_POLL_INTERVAL_S: float = float(os.getenv("F1_RACE_POLL_INTERVAL", "5"))
-    QUALIFYING_POLL_INTERVAL_S: float = float(os.getenv("F1_QUALI_POLL_INTERVAL", "5"))
+    # Each race tick is five requests; at 10 s that is 30 a minute, which with
+    # the position feed stays inside a sponsor account's 60.
+    RACE_POLL_INTERVAL_S: float = float(os.getenv("F1_RACE_POLL_INTERVAL", "10"))
+    QUALIFYING_POLL_INTERVAL_S: float = float(os.getenv("F1_QUALI_POLL_INTERVAL", "10"))
     RACE_CONTROL_POLL_INTERVAL_S: float = float(os.getenv("F1_RC_POLL_INTERVAL", "2"))
 
     # --- Model registry -----------------------------------------------------

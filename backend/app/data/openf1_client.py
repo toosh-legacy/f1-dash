@@ -1,6 +1,8 @@
 """OpenF1 access -- live session state.
 
-Read-only REST polling against https://api.openf1.org/v1 (no API key). The same
+Read-only REST polling against https://api.openf1.org/v1. No key is needed
+between sessions; while one is running OpenF1 serves only paying accounts, and
+:class:`_Auth` signs every request when credentials are configured. The same
 client works against a completed session's historical window, which is how the
 live loops are tested out of season: pass a real ``session_key`` from last
 weekend and the loop replays it.
@@ -16,6 +18,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass
 from typing import Any
 
@@ -33,15 +36,120 @@ OVERRIDE_FIELD_CANDIDATES = ("manual_override", "override", "mo_active", "drs")
 AERO_MODE_FIELD_CANDIDATES = ("aero_mode", "active_aero", "wing_mode")
 
 
-#: OpenF1 is a free, unauthenticated API and rate-limits accordingly. A live
-#: tick fans out over several endpoints, so requests are spaced client-side
-#: rather than discovering the limit through 429s mid-session.
+#: OpenF1 rate-limits per second and per minute. A live tick fans out over
+#: several endpoints, so requests are spaced client-side rather than
+#: discovering the limit through 429s mid-session.
 MIN_REQUEST_INTERVAL_S = 0.35
 MAX_RETRIES_ON_THROTTLE = 3
+
+#: Renew the bearer token this long before OpenF1 says it expires.
+TOKEN_MARGIN_S = 120.0
 
 
 class OpenF1Error(RuntimeError):
     pass
+
+
+class OpenF1Locked(OpenF1Error):
+    """A session is running and OpenF1 serves it only to authenticated users."""
+
+
+class _MinuteBudget:
+    """Requests per rolling minute, shared by every client in the process.
+
+    Each client spaces its own requests, but a live race runs several clients
+    at once -- the race loop, the position feed, the watcher -- and OpenF1
+    counts them together.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._stamps: deque[float] = deque()
+
+    def take(self) -> None:
+        limit = max(int(settings.OPENF1_MAX_RPM), 1)
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                while self._stamps and now - self._stamps[0] >= 60.0:
+                    self._stamps.popleft()
+                if len(self._stamps) < limit:
+                    self._stamps.append(now)
+                    return
+                wait = 60.0 - (now - self._stamps[0]) + 0.01
+            time.sleep(wait)
+
+    def used(self) -> int:
+        with self._lock:
+            now = time.monotonic()
+            return sum(1 for stamp in self._stamps if now - stamp < 60.0)
+
+
+class _Auth:
+    """The OpenF1 bearer token: fetched on first need, renewed before expiry.
+
+    One for the process, so every client shares one token rather than each
+    signing in. The credentials stay here; the browser never sees them.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._token: str | None = None
+        self._expires_at = 0.0
+        self.last_error: str | None = None
+
+    @property
+    def configured(self) -> bool:
+        return settings.openf1_authenticated
+
+    def header(self) -> dict[str, str]:
+        if not self.configured:
+            return {}
+        with self._lock:
+            if self._token is None or time.monotonic() >= self._expires_at:
+                self._login()
+            return {"authorization": f"Bearer {self._token}"}
+
+    def invalidate(self) -> None:
+        with self._lock:
+            self._token = None
+
+    def _login(self) -> None:
+        try:
+            response = httpx.post(
+                settings.OPENF1_TOKEN_URL,
+                data={"username": settings.OPENF1_USERNAME, "password": settings.OPENF1_PASSWORD},
+                headers={"accept": "application/json"},
+                timeout=settings.OPENF1_TIMEOUT_S,
+            )
+            response.raise_for_status()
+            payload = response.json()
+            token = payload.get("access_token") if isinstance(payload, dict) else None
+            if not token:
+                raise OpenF1Error("token response carried no access_token")
+        except (httpx.HTTPError, ValueError, OpenF1Error) as exc:
+            self.last_error = f"OpenF1 sign-in failed: {exc}"
+            raise OpenF1Error(self.last_error) from exc
+        try:
+            lifetime = float(payload.get("expires_in") or 3600)
+        except (TypeError, ValueError):
+            lifetime = 3600.0
+        self._token = str(token)
+        self._expires_at = time.monotonic() + max(lifetime - TOKEN_MARGIN_S, 60.0)
+        self.last_error = None
+        log.info("signed in to OpenF1 (token valid %.0f min)", lifetime / 60)
+
+    def status(self) -> dict[str, Any]:
+        with self._lock:
+            return {
+                "configured": self.configured,
+                "signed_in": self._token is not None and time.monotonic() < self._expires_at,
+                "error": self.last_error,
+            }
+
+
+budget = _MinuteBudget()
+auth = _Auth()
 
 
 @dataclass
@@ -76,6 +184,7 @@ class OpenF1Client:
         self._aero_field: str | None = None
         self._throttle_lock = threading.Lock()
         self._last_request_at = 0.0
+        self._drivers_cache: dict[int, list[dict[str, Any]]] = {}
 
     def close(self) -> None:
         self._client.close()
@@ -99,10 +208,12 @@ class OpenF1Client:
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         clean = {k: v for k, v in params.items() if v is not None}
 
+        reauthed = False
         for attempt in range(MAX_RETRIES_ON_THROTTLE):
             self._throttle()
+            budget.take()
             try:
-                response = self._client.get(url, params=clean)
+                response = self._client.get(url, params=clean, headers=auth.header())
             except httpx.HTTPError as exc:
                 raise OpenF1Error(f"GET {endpoint} failed: {exc}") from exc
 
@@ -119,6 +230,20 @@ class OpenF1Client:
                 log.info("openf1 throttled on %s; retrying in %.1fs", endpoint, delay)
                 time.sleep(delay)
                 continue
+
+            if response.status_code in (401, 403):
+                if auth.configured and not reauthed:
+                    # An expired or revoked token: sign in again, once.
+                    auth.invalidate()
+                    reauthed = True
+                    continue
+                detail = _detail(response)
+                if not auth.configured:
+                    raise OpenF1Locked(
+                        f"GET {endpoint}: {detail or 'unauthorized'} -- set F1_OPENF1_USERNAME "
+                        "and F1_OPENF1_PASSWORD in backend/.env to read live sessions"
+                    )
+                raise OpenF1Error(f"GET {endpoint} refused for this OpenF1 account: {detail}")
 
             try:
                 response.raise_for_status()
@@ -141,7 +266,15 @@ class OpenF1Client:
         return rows[0] if rows else None
 
     def drivers(self, session_key: int) -> list[dict[str, Any]]:
-        return self._get("drivers", session_key=session_key)
+        # The entry list does not change during a session, and a live loop
+        # asks for it every tick: one request per session per client.
+        cached = self._drivers_cache.get(session_key)
+        if cached:
+            return cached
+        rows = self._get("drivers", session_key=session_key)
+        if rows:
+            self._drivers_cache[session_key] = rows
+        return rows
 
     # -- live state --------------------------------------------------------
     def position(self, session_key: int, **filters: Any) -> list[dict[str, Any]]:
@@ -171,6 +304,14 @@ class OpenF1Client:
         return self._get(
             "location", session_key=session_key, driver_number=driver_number, **filters
         )
+
+    def location_since(self, session_key: int, since_iso: str) -> list[dict[str, Any]]:
+        """Every car's position samples after ``since_iso``.
+
+        The one unscoped location query worth making: a few seconds of the
+        whole field is a few hundred rows, where a whole session is millions.
+        """
+        return self._get("location", session_key=session_key, **{"date>": since_iso})
 
     def weather(self, session_key: int) -> dict[str, Any] | None:
         rows = self._get("weather", session_key=session_key)
@@ -332,3 +473,14 @@ def _as_float(value: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return None if f != f else f
+
+
+def _detail(response: httpx.Response) -> str:
+    """OpenF1's own explanation of a refusal, trimmed for a log line."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return response.text[:200]
+    if isinstance(payload, dict):
+        return str(payload.get("detail") or payload)[:300]
+    return str(payload)[:300]
