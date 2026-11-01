@@ -43,6 +43,10 @@ services:
         sync: false
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
+      - key: F1_OPENF1_USERNAME
+        sync: false        # OpenF1 sponsor account: needed to watch sessions live
+      - key: F1_OPENF1_PASSWORD
+        sync: false
       - key: F1_CORS_ORIGINS
         sync: false        # your Vercel origin, e.g. https://f1-dash.vercel.app
       - key: F1_ENV

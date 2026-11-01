@@ -110,6 +110,30 @@ The API also serves the dashboard directly at <http://localhost:8000/>. The Node
 the frontend can live on its own origin — as it would behind a CDN — and to proxy the WebSocket
 upgrade in development.
 
+## Watching a session live
+
+OpenF1 serves running sessions only to paid (sponsor) accounts: while one is
+on, every unauthenticated request -- past sessions included -- gets a 401. To
+watch live, put the account in `backend/.env` (gitignored) and restart the API:
+
+```bash
+F1_OPENF1_USERNAME=you@example.com
+F1_OPENF1_PASSWORD=...
+```
+
+The rest is automatic. A watcher checks OpenF1 once a minute; when a session
+enters its live window it adds the session to the calendar if the seed stopped
+short, starts the position feed for the map, and for qualifying and races the
+prediction loop. The **Live** button in the top bar turns red -- press it, or
+open the page, and the map follows the cars about six seconds behind the track.
+When the session ends the feed stops and its replay is built, which also gives
+the next session at that circuit a layout to draw on (a first visit to a track
+builds last year's race there for one).
+
+The button is amber when a session is on but no account is configured, and
+`GET /live/status` says the same in JSON, including requests used in the last
+minute against the 60/min sponsor limit.
+
 ## How the work flows
 
 Four cycles, on four different clocks. Nothing in the fast ones waits on the

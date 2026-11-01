@@ -36,6 +36,7 @@ async function watchLive(sessionId) {
   }
   openLive(state);
   connectSocket(sessionId);
+  paintButton(liveStatus);
   return true;
 }
 
@@ -174,9 +175,37 @@ async function pressLive() {
     paintButton(status);
     return;
   }
-  const title = status && status.state === "locked" ? "OPENF1 KEY NEEDED" : "NOT LIVE";
-  notify("control", title, describe(status), "now");
+  showHint(status);
 }
+
+let hintTimer = null;
+function showHint(status) {
+  const hint = el("liveHint");
+  const locked = status && status.state === "locked";
+  hint.dataset.state = (status && status.state) || "idle";
+  hint.innerHTML = "<b></b><span></span>";
+  hint.querySelector("b").textContent = locked ? "OpenF1 account needed" : "Nothing live right now";
+  const text = hint.querySelector("span");
+  if (locked) {
+    text.innerHTML = "A session is on, but OpenF1 only serves live data to paid accounts. Put "
+      + "<code>F1_OPENF1_USERNAME</code> and <code>F1_OPENF1_PASSWORD</code> in "
+      + "<code>backend/.env</code> and restart the API; this button turns red when it is ready.";
+  } else {
+    text.textContent = describe(status);
+  }
+  hint.hidden = false;
+  requestAnimationFrame(() => hint.classList.add("in"));
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(hideHint, locked ? 12000 : 5000);
+}
+function hideHint() {
+  const hint = el("liveHint");
+  hint.classList.remove("in");
+  setTimeout(() => { if (!hint.classList.contains("in")) hint.hidden = true; }, 200);
+}
+document.addEventListener("click", (event) => {
+  if (!event.target.closest || !event.target.closest("#liveHint, #liveBtn")) hideHint();
+});
 
 function setLiveHandler(handler) { onLive = handler; }
 

@@ -729,6 +729,29 @@ button.play:disabled { opacity: .4; cursor: default; }
 .gauge.gear .read { font-size: 18px; font-family: var(--ui); font-weight: 800; }
 .gauge.brake .read { font-size: 10.5px; }
 .gauge .lbl { font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin-top: 1px; }
+/* The car's timing under the rings: read from the bundle, so always there. */
+.probe-stats {
+  display: flex; gap: 4px; margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+.probe-stats .stat {
+  flex: 1; min-width: 0; display: grid; justify-items: center; gap: 1px;
+  padding: 4px 2px; border-radius: 8px; background: rgba(255,255,255,.05);
+}
+.probe-stats .stat b {
+  font-family: var(--mono); font-size: 11.5px; font-weight: 750; letter-spacing: -.03em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.probe-stats .stat small {
+  font-size: 9px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim);
+}
+.probe-stats .stat.best b { color: #c9a7ff; }
+.probe-stats .stat.tyre.SOFT b { color: #ff4a55; }
+.probe-stats .stat.tyre.MEDIUM b { color: #ffd23f; }
+.probe-stats .stat.tyre.HARD b { color: #f2f2f2; }
+.probe-stats .stat.tyre.INTERMEDIATE b { color: #43d17a; }
+.probe-stats .stat.tyre.WET b { color: #4aa3ff; }
+.probe-stats .none { flex: 1; text-align: center; font-size: 10.5px; color: var(--dim); }
 .probe-foot { font-size: 10.5px; color: var(--dim); margin-top: 6px; text-align: center; }
 .probe-foot:empty { display: none; }
 
@@ -918,6 +941,19 @@ button.play:disabled { opacity: .4; cursor: default; }
   color: #ffe2a8; background: rgba(224,160,32,.14); border-color: rgba(224,160,32,.45);
 }
 .live-btn[data-state="locked"] .pulse { background: #e0a020; opacity: 1; }
+.live-hint {
+  position: absolute; top: calc(14px + 48px + 8px); left: calc(14px + var(--tower-w) + 14px);
+  max-width: 380px; padding: 11px 14px; border-radius: 14px; z-index: var(--z-popover);
+  font-size: 12.5px; line-height: 1.45; color: var(--text);
+  background: rgba(18,14,30,.94); border: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 18px 40px -14px rgba(0,0,0,.8);
+  opacity: 0; translate: 0 -4px; transition: opacity .18s ease, translate .25s var(--ease-out);
+}
+.live-hint.in { opacity: 1; translate: 0 0; }
+.live-hint b { display: block; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 3px; }
+.live-hint[data-state="locked"] b { color: #ffcf6e; }
+.live-hint code { font-family: var(--mono); font-size: 11.5px; color: #e7dcff; }
+@media (max-width: 900px) { .live-hint { position: fixed; left: 8px; right: 8px; top: 64px; max-width: none; } }
 @keyframes live-pulse {
   0% { box-shadow: 0 0 0 0 rgba(255,43,57,.6); }
   70% { box-shadow: 0 0 0 7px rgba(255,43,57,0); }
