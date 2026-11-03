@@ -571,9 +571,7 @@ isn't publicly accessible.
 ### 2.11 Check it works
 
 - `https://f1.example.com/health` returns JSON.
-- `https://f1.example.com/` shows the dashboard with styles. If it's unstyled,
-  the Caddy rewrite is missing. `https://f1.example.com/static/dashboard.html`
-  always works.
+- `https://f1.example.com/` redirects to the dashboard and shows it with styles.
 - Open a replay. Then, during a live session, open the live view. In the
   browser's DevTools, under **Network → WS**, `wss://f1.example.com/sessions/<id>/live`
   should show status **101**, followed by a `connected` message.
@@ -683,9 +681,7 @@ option.
      gateway (about $33/month).
    - **Never enable autoscaling** on this service.
 7. **DNS:** an alias `A` record from the domain to the ALB.
-8. **Dashboard at `/`.** The ALB can't do the asset rewrite Caddy does here (at
-   least not in the ALB features I'm sure of). Use `/static/dashboard.html`, or
-   fix `main.py` (see the quirk at the top).
+8. **Dashboard at `/`.** Works as-is: the API redirects `/` to `/static/dashboard.html`.
 9. **Redeploy:** push a new tag, register a new task-definition revision, then
    run `aws ecs update-service --cluster f1-dash --service api --task-definition f1-dash-api:<rev>`.
    If you reuse the same tag, add `--force-new-deployment` instead.
@@ -895,7 +891,7 @@ Fixes, cheapest first:
 |---|---|
 | `NoCredentialsError` / `Unable to locate credentials` in the API logs | The container can't reach the instance role. Set the metadata hop limit to 2: `aws ec2 modify-instance-metadata-options --instance-id $INSTANCE_ID --http-put-response-hop-limit 2 --http-tokens required`, then `f1-deploy`. |
 | `could not list s3://…: AccessDenied` | The bucket name in `app.env` doesn't match the policy, or `F1_S3_PREFIX` isn't `prod` (the policy only allows `prod/*`, `bootstrap/*` and `backups/*`). |
-| Dashboard loads without styles at `/` | The Caddy rewrite is missing (see the quirk at the top). Use `/static/dashboard.html`. |
+| Dashboard loads without styles at `/` | The image predates the `/` redirect. Rebuild and redeploy, or open `/static/dashboard.html`. |
 | Instance doesn't appear in Session Manager | Wait 2 to 3 minutes after launch, and check the instance profile is attached (`aws ec2 describe-iam-instance-profile-associations`). Outbound 443 must be allowed (it is by default). |
 | Caddy logs `challenge failed` / no certificate | DNS doesn't point at the Elastic IP yet, or port 80 isn't open in `f1-dash-web`. Let's Encrypt rate-limits repeated failures, so fix DNS first and then `docker restart caddy`. |
 | `exec format error` when the container starts | The image architecture doesn't match the instance. Build with `--platform linux/amd64` for t3, or `linux/arm64` for t4g. |
