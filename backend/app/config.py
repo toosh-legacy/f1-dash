@@ -85,6 +85,13 @@ class Settings:
         55 if os.getenv("F1_OPENF1_USERNAME", "").strip() else 28
     )
 
+    # F1 TV subscriber login: the whole ``login-session`` cookie formula1.com
+    # sets after signing in. Unlocks F1's own live timing (car telemetry and
+    # positions included) and its archive of past sessions. Lasts a few days.
+    F1TV_LOGIN_SESSION: str = os.getenv("F1TV_LOGIN_SESSION", "").strip()
+    # Where the raw F1 archive is backed up to (scripts/backup_f1_archive.py).
+    F1_ARCHIVE_DIR: Path = Path(os.getenv("F1_ARCHIVE_DIR", str(PROJECT_ROOT / "archive")))
+
     @property
     def openf1_authenticated(self) -> bool:
         return bool(self.OPENF1_USERNAME and self.OPENF1_PASSWORD)

@@ -12,6 +12,7 @@ backend/.fastf1_cache/
 backend/model_artifacts/
 backend/replays/
 backend/.osm_cache/
+backend/archive/
 .env
 
 # Node
