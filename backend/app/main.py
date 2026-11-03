@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import api
@@ -81,4 +81,6 @@ if STATIC_DIR.exists():
 
     @app.get("/", include_in_schema=False)
     def dashboard():
-        return FileResponse(str(STATIC_DIR / "dashboard.html"))
+        # A redirect, not the file: the page links its stylesheet and modules
+        # relatively, and they are only served under /static/.
+        return RedirectResponse("/static/dashboard.html")
