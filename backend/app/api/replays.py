@@ -138,6 +138,14 @@ def build_replay(session_key: int, force: bool = False) -> dict[str, Any]:
         with session_scope() as db:
             size = replay_store.publish(db, session_key, bundle)
         progress("published", {"session_key": session_key, "bytes": size})
+        # Keep every car's telemetry with the replay, so the probe never waits
+        # on OpenF1 -- or finds it locked while another session is live.
+        try:
+            telemetry.prefetch_session(
+                session_key, bundle, report=lambda stage, detail=None: progress(stage, detail)
+            )
+        except Exception as error:  # noqa: BLE001 - the replay plays without it
+            log.warning("prefetching telemetry for %s failed: %s", session_key, error)
         # The first race built at a circuit maps its surroundings. Best
         # effort: a replay without a map still plays.
         try:
@@ -188,6 +196,26 @@ def get_replay_meta(session_key: int) -> Response:
 def get_replay_frames(session_key: int) -> Response:
     """Just the playback frames -- the other 439 KB."""
     return _bundle_part_response(session_key, "frames")
+
+
+@router.post("/replays/{session_key}/telemetry", response_model=schemas.JobOut, tags=["replays"])
+def prefetch_replay_telemetry(session_key: int) -> dict[str, Any]:
+    """Queue fetching every car's telemetry for a built replay, once.
+
+    Replays built before telemetry was kept with them use this to catch up;
+    cars already on disk are skipped.
+    """
+    require_built_replay(session_key)
+
+    def run(progress: jobs.ProgressReporter) -> dict[str, Any]:
+        written = telemetry.prefetch_session(
+            session_key,
+            replay.load_bundle(session_key) or {},
+            report=lambda stage, detail=None: progress(stage, detail),
+        )
+        return {"session_key": session_key, "cars": len(written)}
+
+    return jobs.submit("telemetry", None, run).as_dict()
 
 
 @router.get("/replays/{session_key}/telemetry/{number}", tags=["replays"])

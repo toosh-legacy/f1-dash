@@ -38,7 +38,7 @@ def test_t0_prefers_the_recorded_instant_and_falls_back_to_the_schedule():
     assert telemetry.session_t0({}) is None
 
 
-def test_rows_are_put_on_the_replay_clock_and_the_pedals_clipped(monkeypatch):
+def test_rows_are_put_on_the_replay_clock_and_no_reading_is_handled(monkeypatch):
     fake = _FakeOpenF1([
         {"date": "2026-07-05T14:02:01.500000+00:00", "speed": 287, "n_gear": 7,
          "throttle": 104, "brake": 0, "rpm": 11329},
@@ -49,9 +49,10 @@ def test_rows_are_put_on_the_replay_clock_and_the_pedals_clipped(monkeypatch):
 
     rows = telemetry.telemetry_window(11326, 16, 1, T0)
 
-    # Sorted by time, seconds since t0, and nothing above 100 percent.
+    # Sorted by time, seconds since t0. The feed's 104 ("no reading") on a
+    # moving car holds the last real value; with none yet, it stays empty.
     assert rows == [
-        [120.25, 290.0, 7.0, 100.0, 100.0, 11400.0],
+        [120.25, 290.0, 7.0, 100.0, None, 11400.0],
         [121.5, 287.0, 7.0, 100.0, 0.0, 11329.0],
     ]
     _, filters = fake.calls[0]
@@ -93,3 +94,19 @@ def test_a_window_still_filling_in_is_not_kept(monkeypatch):
     telemetry.telemetry_window(9001, 1, 0, now - telemetry.timedelta(seconds=telemetry.WINDOW_S))
     telemetry.telemetry_window(9001, 1, 0, now - telemetry.timedelta(seconds=telemetry.WINDOW_S))
     assert len(fake.calls) == 2
+
+
+def test_a_parked_car_has_no_pedal_reading_and_a_moving_glitch_is_held(monkeypatch):
+    fake = _FakeOpenF1([
+        {"date": "2026-07-05T14:02:00.000000+00:00", "speed": 0, "n_gear": 0,
+         "throttle": 104, "brake": 104, "rpm": 0},
+        {"date": "2026-07-05T14:02:01.000000+00:00", "speed": 300, "n_gear": 8,
+         "throttle": 99, "brake": 0, "rpm": 12000},
+        {"date": "2026-07-05T14:02:01.250000+00:00", "speed": 302, "n_gear": 8,
+         "throttle": 104, "brake": 104, "rpm": 12100},
+    ])
+    monkeypatch.setattr(telemetry, "_openf1", lambda: fake)
+
+    rows = telemetry.telemetry_window(11326, 16, 1, T0)
+
+    assert [r[3:5] for r in rows] == [[None, None], [99.0, 0.0], [99.0, 0.0]]

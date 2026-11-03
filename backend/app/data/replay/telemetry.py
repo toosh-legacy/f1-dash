@@ -45,6 +45,10 @@ CACHE_SIZE = 400
 #: not kept. OpenF1 publishes car data a few seconds behind the track.
 SETTLE_S = 120.0
 
+#: Bumped when the row format changes, so windows written by an older build
+#: are fetched again rather than served wrong.
+CACHE_VERSION = "v2"
+
 _cache: "OrderedDict[tuple[int, int, int], list[list[float]]]" = OrderedDict()
 _lock = threading.Lock()
 _client: OpenF1Client | None = None
@@ -67,7 +71,8 @@ def telemetry_window(
     """One window of one car's telemetry as compact rows.
 
     Each row is ``[t, speed_kph, gear, throttle_pct, brake_pct, rpm]`` with
-    ``t`` on the replay clock. Empty when the car was not running.
+    ``t`` on the replay clock; a pedal with no reading is ``None``. Empty when
+    the car was not running.
     """
     key = (session_key, number, index)
     with _lock:
@@ -109,7 +114,7 @@ def _remember(key: tuple[int, int, int], rows: list[list[float]]) -> None:
 
 def _path(key: tuple[int, int, int]):
     session_key, number, index = key
-    return settings.REPLAY_DIR / "telemetry" / str(session_key) / str(number) / f"{index}.json.gz"
+    return settings.REPLAY_DIR / "telemetry" / CACHE_VERSION / str(session_key) / str(number) / f"{index}.json.gz"
 
 
 def _read(key: tuple[int, int, int]) -> list[list[float]] | None:
@@ -136,24 +141,39 @@ def _write(key: tuple[int, int, int], rows: list[list[float]]) -> None:
         log.warning("could not keep telemetry window %s: %s", path, exc)
 
 
-def _compact(rows: list[dict[str, Any]], t0: datetime) -> list[list[float]]:
-    out: list[list[float]] = []
+def _compact(rows: list[dict[str, Any]], t0: datetime) -> list[list[float | None]]:
+    dated = []
     for row in rows:
         moment = _parse_date(row.get("date"))
-        if moment is None:
-            continue
+        if moment is not None:
+            dated.append((moment, row))
+    dated.sort(key=lambda pair: pair[0])
+
+    out: list[list[float | None]] = []
+    # The feed writes 104 for "no reading" on throttle and brake. A parked car
+    # reads 104 on both for minutes at a time: that is genuinely no reading.
+    # A moving car drops the odd single sample to 104 too -- a glitch, not the
+    # driver lifting -- so there the last real reading is held, rather than
+    # the gauge blinking to a dash at 340 km/h.
+    last = {"throttle": None, "brake": None}
+    for moment, row in dated:
+        speed = _number(row.get("speed"))
+        pedals = []
+        for name in ("throttle", "brake"):
+            reading = _number(row.get(name))
+            if reading > 100.0:
+                reading = last[name] if speed > 0 else None
+            else:
+                last[name] = reading
+            pedals.append(reading)
         out.append([
             round((moment - t0).total_seconds(), 2),
-            _number(row.get("speed")),
+            speed,
             _number(row.get("n_gear")),
-            # The feed writes 104 for "no reading" on throttle and brake; a
-            # pedal cannot be pressed past 100 percent, so anything above it is
-            # clipped rather than shown as more than flat out.
-            min(_number(row.get("throttle")), 100.0),
-            min(_number(row.get("brake")), 100.0),
+            pedals[0],
+            pedals[1],
             _number(row.get("rpm")),
         ])
-    out.sort(key=lambda r: r[0])
     return out
 
 
@@ -172,3 +192,59 @@ def _openf1() -> OpenF1Client:
         if _client is None:
             _client = OpenF1Client()
         return _client
+
+
+def prefetch_session(
+    session_key: int,
+    bundle: dict[str, Any],
+    *,
+    client: OpenF1Client | None = None,
+    report: Any = None,
+) -> dict[str, int]:
+    """Fetch every car's telemetry for a whole finished session and keep it.
+
+    One request per car rather than one per car per two minutes, done when the
+    replay is built. After that the session's telemetry never depends on
+    OpenF1 again -- which matters because a free caller is locked out of
+    every session, past ones included, while any session is live, and a
+    sponsor's minute budget is better spent on the live one.
+
+    Every window of the session is written, empty ones too, so a car that was
+    in the garage reads as "not on track" instead of asking OpenF1 again.
+    Returns windows written per car; skips cars already complete.
+    """
+    report = report or (lambda _stage, _detail=None: None)
+    t0 = session_t0(bundle)
+    duration = float(bundle.get("duration_s") or 0)
+    if t0 is None or duration <= 0:
+        return {}
+    end = t0 + timedelta(seconds=duration)
+    if time.time() - end.timestamp() < SETTLE_S:
+        return {}  # still filling in; the on-demand path handles it
+    last = window_index(duration)
+    client = client or _openf1()
+    written: dict[int, int] = {}
+    drivers = bundle.get("drivers") or []
+    for done, driver in enumerate(drivers, start=1):
+        number = int(driver["number"])
+        if all(_path((session_key, number, i)).exists() for i in range(last + 1)):
+            continue
+        try:
+            rows = client.car_data(
+                session_key,
+                driver_number=number,
+                **{"date>": t0.isoformat(), "date<": end.isoformat()},
+            )
+        except Exception as exc:  # noqa: BLE001 - one car must not lose the rest
+            log.warning("telemetry prefetch for car %s of %s failed: %s", number, session_key, exc)
+            continue
+        by_window: dict[int, list[list[float]]] = {i: [] for i in range(last + 1)}
+        for row in _compact(rows, t0):
+            index = window_index(row[0])
+            if index in by_window:
+                by_window[index].append(row)
+        for index, chunk in by_window.items():
+            _write((session_key, number, index), chunk)
+        written[number] = len(by_window)
+        report("telemetry", {"car": number, "done": done, "of": len(drivers)})
+    return written
