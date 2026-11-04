@@ -121,7 +121,7 @@ profile.
 Set these once per PowerShell window. Every later laptop step uses them.
 
 ```powershell
-$REGION  = "us-west-2"        # or "us-east-1"; pick one and keep it
+$REGION  = "us-east-2"        # this account's console project is pinned to us-east-2
 $env:AWS_DEFAULT_REGION = $REGION
 $ACCOUNT = aws sts get-caller-identity --query Account --output text
 $BUCKET  = "f1-dash-artifacts-$ACCOUNT"   # bucket names are global; the account id keeps it unique
@@ -382,7 +382,7 @@ docker network create f1
 Now write the non-secret settings. **Edit the first four lines** before pasting:
 
 ```bash
-REGION=us-west-2
+REGION=us-east-2
 BUCKET=f1-dash-artifacts-123456789012        # the $BUCKET from step 2.0
 DOMAIN=f1.example.com                        # or the Elastic IP if you have no domain
 DB=sqlite                                    # "sqlite" (option A) or "rds" (option B)
@@ -744,7 +744,7 @@ If you want logs in **CloudWatch**, add these flags to the `docker run` line in
 instance role already allows `/f1-dash/*` log groups:
 
 ```
---log-driver awslogs --log-opt awslogs-region=us-west-2 --log-opt awslogs-group=/f1-dash/api --log-opt awslogs-create-group=true
+--log-driver awslogs --log-opt awslogs-region=us-east-2 --log-opt awslogs-group=/f1-dash/api --log-opt awslogs-create-group=true
 ```
 
 After that, `docker logs` no longer works. Read the logs in the CloudWatch
@@ -753,7 +753,7 @@ costs about $0.50/GB.
 
 ### Rough monthly cost (estimate only)
 
-These are on-demand prices for us-east-1 and us-west-2, from my knowledge as of
+These are on-demand prices for us-east-1 and us-east-2, from my knowledge as of
 2025. Check the AWS Pricing Calculator. New accounts may have free-tier credits
 that cover some of this.
 
