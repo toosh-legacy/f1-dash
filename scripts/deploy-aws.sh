@@ -24,7 +24,7 @@ aws_() { "$AWS" --region "$REGION" "$@"; }
 # The bucket is named after the account, so it is worked out from whoever is
 # signed in rather than written into a public repo.
 if [ -z "${BUCKET:-}" ]; then
-  BUCKET="f1-dash-archive-$(aws_ sts get-caller-identity --query Account --output text | tr -d '')"
+  BUCKET="f1-dash-archive-$(aws_ sts get-caller-identity --query Account --output text | tr -d '[:cntrl:]')"
 fi
 
 cd "$(git rev-parse --show-toplevel)"
@@ -53,7 +53,7 @@ echo "uploaded HEAD $(git rev-parse --short HEAD) to s3://$BUCKET/bootstrap/src.
 CMD_ID="$(aws_ ssm send-command --instance-ids "$INSTANCE_ID" \
   --document-name AWS-RunShellScript --comment "f1-deploy $(git rev-parse --short HEAD)" \
   --timeout-seconds 1800 \
-  --parameters 'commands=["/usr/local/bin/f1-deploy"],executionTimeout=["1800"]' \
+  --parameters 'commands=["set -e; source /etc/f1-dash/deploy.conf; aws s3 cp --region $REGION --only-show-errors s3://$BUCKET/bootstrap/src.tar.gz /tmp/f1-src.tar.gz; tar -xzOf /tmp/f1-src.tar.gz deploy/aws/f1-deploy.sh > /usr/local/bin/f1-deploy; chmod 755 /usr/local/bin/f1-deploy; /usr/local/bin/f1-deploy"],executionTimeout=["1800"]' \
   --query Command.CommandId --output text)"
 echo "running f1-deploy on $INSTANCE_ID (command $CMD_ID)..."
 
@@ -70,5 +70,7 @@ echo "status: $status"
 
 EIP="$(aws_ ec2 describe-instances --instance-ids "$INSTANCE_ID" \
   --query 'Reservations[0].Instances[0].PublicIpAddress' --output text)"
-echo "health: $(curl -s -o /dev/null -w '%{http_code}' "http://$EIP/health" || true)  ->  http://$EIP/"
+HOST="$(aws_ ssm get-parameter --name /f1-dash/F1_PUBLIC_HOST --query Parameter.Value --output text 2>/dev/null | tr -d '[:cntrl:]' || true)"
+if [ -n "$HOST" ] && [ "$HOST" != "None" ]; then URL="https://$HOST"; else URL="http://$EIP"; fi
+echo "health: $(curl -s -o /dev/null -w '%{http_code}' "$URL/health" || true)  ->  $URL/"
 [ "$status" = Success ]
