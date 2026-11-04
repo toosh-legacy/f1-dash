@@ -505,6 +505,30 @@ recorded race still look right".
   race can run strategies absent from a corpus this small; the validation detail reports
   `unseen_labels` so the number is read in context.
 
+## Deployment
+
+One EC2 instance on AWS, with **Caddy** in front for HTTPS. Full design, security
+model and runbook: [`DEPLOY-AWS.md`](DEPLOY-AWS.md).
+
+```
+browser ──https/wss──▶ Caddy (:443, Let's Encrypt) ──▶ f1-api (FastAPI, one worker)
+                                                          │  SQLite + caches on EBS
+                                                          ├─▶ S3: models, replays (prod/)
+                                                          └─▶ SSM: settings and secrets
+```
+
+- **One container on purpose.** The live loops, job queue and WebSocket
+  broadcaster live in the process, so a second replica would duplicate them.
+- **Public, but read-only.** `F1_PUBLIC_MODE=true` refuses every write at one
+  middleware unless the request carries `X-Admin-Token`, so anyone can watch and
+  nobody can retrain or delete.
+- **No keys anywhere.** The instance uses an IAM role, shell access is SSM
+  Session Manager (no SSH), and secrets are SSM SecureString parameters.
+- **One-command deploys.** `scripts/deploy-aws.sh` ships the committed `HEAD` and
+  runs `deploy/aws/f1-deploy.sh` on the instance over SSM.
+- **Cost.** About $68/month running, and $6/month stopped. It is kept stopped
+  between demos.
+
 ## Configuration
 
 Copy `backend/.env.example` to `.env`. Everything is environment-driven: database URL, regime and

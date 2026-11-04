@@ -1,5 +1,10 @@
 # Deploying
 
+> **Superseded.** The deployment architecture is now **AWS with Caddy**: one EC2
+> instance, TLS from Let's Encrypt, S3 for blobs, SSM for configuration and deploys.
+> See [`DEPLOY-AWS.md`](DEPLOY-AWS.md), section 0. This Render + Vercel plan is kept for
+> reference.
+
 The dashboard splits across two hosts, and the split is forced by what the
 backend actually does rather than by taste:
 

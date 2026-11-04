@@ -1,55 +1,177 @@
-# Deploying to AWS
+# Deploying to AWS: the architecture
 
-This is the all-AWS alternative to [`DEPLOY.md`](DEPLOY.md) (Render + Vercel + S3).
-Everything runs in one AWS account, in one region.
+The dashboard deploys to **one EC2 instance in AWS, with Caddy in front of it**.
+This document is the design and the runbook. [`DEPLOY.md`](DEPLOY.md) describes an
+earlier Render + Vercel plan; it is kept for reference only.
 
-**What the API needs, and why that decides the hosting.** The FastAPI app runs in
-a single Docker container (`backend/Dockerfile`). That container has to be:
+Status (November 2026): built, scripted and verified end to end in `us-east-2`,
+then **stopped to save cost**. Section 0.8 says how to bring it back.
 
-- **One process with one worker.** The live loops, the training job queue and the
-  WebSocket broadcaster all live inside the process. A second worker or a second
-  replica would run a second copy of each, polling OpenF1 twice and splitting
-  the WebSocket clients between them.
-- **Always running.** It keeps WebSockets open
-  (`/sessions/{id}/live`) and runs background threads: a director that watches
-  OpenF1 for sessions going live, the per-session polling loops, and model
-  training.
-- **Large.** xgboost, pandas, scikit-learn and fastf1 make the image about
-  1.5 GB, and training takes a lot of RAM.
+## 0. Architecture
 
-That rules out **Lambda**, which can't hold a long-lived process or a WebSocket
-server. It also rules out **App Runner**: as far as I know (as of late 2025)
-App Runner does not support WebSocket connections, and it scales by adding
-instances, which this app can't tolerate. Check the App Runner docs before you
-rely on that, but don't plan around it.
-
-**Recommended:** run one EC2 instance with the container on it, and put Caddy in
-front of it for HTTPS. The API already serves the dashboard, so one host serves
-everything and no separate frontend is needed.
-
-**Alternative, for later:** ECS Fargate behind an Application Load Balancer
-(section 3).
+### 0.1 The shape of it
 
 ```
-                    browser ── https / wss ──▶  Elastic IP  (optional: f1.example.com via Route 53)
-                                                    │
- ┌──────────────── EC2 t3.medium, Amazon Linux 2023 ┼───────────────────────────────┐
- │  caddy container  :80 / :443   (TLS from Let's Encrypt, WebSocket proxy)        │
- │        │  reverse_proxy                                                         │
- │  f1-api container :8000   uvicorn --workers 1                                   │
- │        │   /var/cache/f1  ◀── EBS volume (SQLite db, FastF1 cache, artifact cache)│
- └────────┼────────────────────────────────────────────────────────────────────────┘
-          │ instance role (no access keys)
-          ├──▶ S3  f1-dash-artifacts-<account>/prod/...   model .joblib + replay gzips
-          ├──▶ SSM Parameter Store /f1-dash/*             OpenF1 login, DB URL
-          ├──▶ ECR f1-dash-api                             the image
-          └──▶ (optional) RDS Postgres db.t4g.micro        instead of SQLite
+   visitor's browser
+        │  https://<host>/            (pages, JSON)
+        │  wss://<host>/sessions/...  (live push)
+        ▼
+   Elastic IP  ──  security group f1-dash-web: 80 + 443 in, nothing else (no SSH)
+        │
+ ┌──────┼────────────── EC2 · Amazon Linux 2023 · 2 vCPU / 4 GiB · IMDSv2 only ──────────────┐
+ │      ▼                                                                                     │
+ │  ┌─────────────┐  docker network "f1"   ┌───────────────────────────────────────────────┐  │
+ │  │ caddy:2     │ ─────────────────────▶ │ f1-api  (FastAPI, uvicorn --workers 1)        │  │
+ │  │ :80  :443   │   reverse_proxy :8000  │  · serves the dashboard and the API           │  │
+ │  │ TLS (ACME)  │                        │  · read-only middleware in public mode        │  │
+ │  └──────┬──────┘                        │  · director, live loops, job pool, broadcaster│  │
+ │         │ /var/cache/caddy (certs)      └──────────────┬────────────────────────────────┘  │
+ │         ▼                                              ▼ /var/cache/f1                     │
+ │   EBS volume (gp3, encrypted): SQLite DB · model artifacts · replays · telemetry windows    │
+ │                                · FastF1 cache · Caddy certificates                         │
+ └───────────────────────────────┬────────────────────────────────────────────────────────────┘
+                                 │ instance role f1-dash-ec2 (no access keys anywhere)
+            ┌────────────────────┼─────────────────────────────┐
+            ▼                    ▼                             ▼
+   S3 bucket (private)    SSM Parameter Store /f1-dash/*   SSM Run Command / Session Manager
+   prod/       app blobs  settings + SecureString secrets  deploys and shell access
+   bootstrap/  src + seed one env var per parameter        (no port 22)
+   archive/    F1 timing backup (the app role cannot read it)
 ```
 
-> The API redirects `/` to `/static/dashboard.html`, so opening the domain
-> loads the dashboard with its styles and scripts; no proxy rewrite is needed.
+Everything is one process on one host. That is a constraint of the app, not a
+shortcut. The live loops, the training job queue and the WebSocket broadcaster
+all live in memory inside the API process. A second worker or a second replica
+would run a second copy of each: OpenF1 would be polled twice, and the
+WebSocket clients would be split between two processes that don't know about
+each other. So the unit of deployment is "exactly one container", and the
+architecture is built around keeping it that way.
+
+### 0.2 The pieces and why each is there
+
+| Piece | What it does | Why this, not something else |
+|---|---|---|
+| **EC2, one instance** | Runs both containers | The API is a long-lived process. It holds WebSockets open, runs background threads, and needs about 1.5 GB of ML wheels. **Lambda** can't hold a process or a socket. **App Runner** scales by adding instances and (as of late 2025) doesn't do WebSockets. **ECS Fargate + ALB** works, and is the scaling path (section 3), but it costs about twice as much and needs RDS, because a task has no durable disk. |
+| **Caddy** | TLS termination, HTTP→HTTPS redirect, reverse proxy, WebSocket pass-through, gzip | Five lines of config. It gets and renews a Let's Encrypt certificate on its own, with no certbot cron, and it passes the WebSocket `Upgrade` through without extra rules. **nginx** needs certbot plus explicit upgrade headers. **An ALB + ACM** gives managed certificates, but costs about $16/month before any traffic. |
+| **Hostname** | Names the instance for the certificate | Let's Encrypt won't issue for a bare IP. `<ip-with-dashes>.sslip.io` resolves to the IP with no DNS setup, and sslip.io is on the Public Suffix List, so it has its own issuance limits. A real domain via Route 53 is a one-line change to `F1_PUBLIC_HOST`. |
+| **Docker network `f1`** | Private link between Caddy and the API | With a public host set, the API publishes only `127.0.0.1:8000`. The only way in from outside is through Caddy. |
+| **EBS volume** | SQLite, models, replays, caches, certificates | The app's state is small (tens of MB of rows, about 100 MB of artifacts) and written by one process. That is SQLite's sweet spot. Moving to **RDS Postgres** is a connection-string change (`F1_DATABASE_URL`). It earns its keep once there is more than one writer, or managed backups are wanted. |
+| **S3 bucket** | `prod/` is the app's blob store (models, replay bundles); `bootstrap/` holds the shipped source and the seed data; `archive/` holds the raw F1 timing backup | Blobs outlive the instance. The EBS copy is a cache in front of S3 (`F1_BLOB_BACKEND=s3`). |
+| **SSM Parameter Store** | Every `/f1-dash/NAME` parameter becomes `NAME=value` in the container's env file on each deploy | Configuration and secrets live outside the image and outside git. Secrets are SecureString (KMS `aws/ssm`). Changing a setting is a `put-parameter` and a redeploy, with no rebuild of the instance. |
+| **IAM role `f1-dash-ec2`** | The instance's only credentials | Least privilege. S3 Get/Put/Delete on `prod/*` and `bootstrap/*` only (it can't read `archive/`), `ssm:GetParameter*` on `/f1-dash/*`, `kms:Decrypt` only via SSM, plus the AWS-managed SSM core policy. No access keys exist on the box. |
+| **SSM Run Command / Session Manager** | Deploys, and shell access when needed | No port 22, no SSH keys to manage or leak. Every command is authenticated by IAM and logged. |
+| **Security group `f1-dash-web`** | The firewall | Inbound 80 and 443 only. Port 80 exists for the ACME challenge and the redirect to HTTPS. |
+| **Elastic IP** | A fixed address | The hostname, the certificate and any DNS record stay valid across stop/start. |
+
+### 0.3 A request, end to end
+
+1. The browser resolves `<host>` to the Elastic IP and opens TLS to Caddy on 443.
+2. Caddy terminates TLS and proxies to `f1-api:8000` on the private Docker network.
+3. The read-only middleware (`backend/app/main.py`) lets `GET`/`HEAD`/`OPTIONS` through.
+4. `/` redirects to `/static/dashboard.html`. The page asks `/health` and `/app-config` (which reports `{"public": true}`), then loads the replay list.
+5. A replay bundle is served from the EBS cache, falling back to S3, gzipped. The car card asks `/replays/{key}/telemetry/{car}?t=`, which comes from windows saved to disk when the replay was built (no upstream call).
+6. A live session, when one is being followed, arrives over `wss://<host>/sessions/{id}/live`. Caddy passes the upgrade straight through.
+
+### 0.4 Public, but read-only
+
+A link anyone can open must not let anyone change anything. The API has no user
+accounts, so the rule sits at the edge of the app instead of in each endpoint:
+
+- `F1_PUBLIC_MODE=true` turns on one HTTP middleware that refuses every
+  non-read request (`POST`, `PUT`, `PATCH`, `DELETE`) with
+  `403 {"detail": {"reason": "read_only", ...}}`. A new write route is closed to
+  the public the day it is written, because the guard isn't something each
+  endpoint has to remember.
+- The owner still writes, by sending `X-Admin-Token: <F1_ADMIN_TOKEN>`. The
+  comparison is constant-time (`hmac.compare_digest`). With no token configured,
+  nobody writes at all. That header is how replays get built on the server.
+- `F1_LIVE_AUTOSTART=false` keeps the director from following sessions and
+  queuing builds on its own.
+- **No F1 TV token on a public server.** F1 TV data is licensed for personal
+  use, so the public deployment serves replays built from OpenF1's free
+  historical data. Live F1 TV timing stays on the owner's laptop.
+- The page reads the API's own refusal messages, so a visitor who clicks an
+  unbuilt race sees "This is a read-only public demo…" rather than a status code.
+
+### 0.5 How a deploy works
+
+```
+ laptop: scripts/deploy-aws.sh
+   1. git archive HEAD  ──▶  s3://<bucket>/bootstrap/src.tar.gz   (committed code only; refuses if a .env is tracked)
+   2. ssm send-command  ──▶  instance:
+        install deploy/aws/f1-deploy.sh from that tarball as /usr/local/bin/f1-deploy, then run it:
+          a. SSM /f1-dash/*  ──▶  /etc/f1-dash/env   (chmod 600, values never logged)
+          b. docker build f1-dash:latest from backend/
+          c. first boot only: restore bootstrap/data (DB last, so its presence means "restore finished")
+          d. docker rm -f f1-api, THEN docker run f1-api   (never two copies of the live loops)
+          e. with F1_PUBLIC_HOST: write the Caddyfile, (re)start caddy on 80/443
+          f. wait for /health, or print the container's last logs and fail
+   3. poll the command, print its output, curl https://<host>/health
+```
+
+- **The image is built on the instance, not pushed to a registry.** One host, one
+  image, so ECR adds a moving part without buying anything. With more than one
+  host, build once in CI and push to ECR instead (section 2.6 shows how).
+- **The server-side script ships with the code.** Every deploy installs the
+  `deploy/aws/f1-deploy.sh` from the tarball it is deploying, so what runs on the
+  server is always what is in git at that commit.
+- **The deploy has a brief gap.** The old container is removed before the new
+  one starts. That's a few seconds of 502s from Caddy, accepted on purpose:
+  two overlapping containers would double-poll OpenF1 and split live clients.
+  Zero-downtime would need the live loops moved out of the process first (see 0.7).
+
+### 0.6 Security, in one list
+
+- **Ingress:** 443 (and 80 for ACME and the redirect) only. No SSH; shell access
+  is SSM Session Manager, authenticated and audited by IAM.
+- **Instance metadata:** IMDSv2 required, so a server-side request forgery can't
+  read the role's credentials with a simple GET.
+- **No long-lived credentials:** the instance uses its role. The laptop uses
+  `aws login` (temporary, auto-refreshed).
+- **Secrets:** SSM SecureString. They land only in a root-only env file on the
+  instance, never in the image, git, user-data or logs.
+- **Least-privilege role:** two bucket prefixes, one parameter path, decrypt only via SSM.
+- **Storage:** EBS and S3 encrypted at rest. The bucket blocks all public access.
+- **App:** read-only middleware, admin token compared in constant time, CORS limited to the site's own origin.
+- **Data licensing:** no F1 TV token on any public host.
+
+### 0.7 Trade-offs, limits, and the way to scale
+
+| Limit | Why it is accepted | What changes it |
+|---|---|---|
+| One instance is a single point of failure | A demo and a personal tool. `--restart unless-stopped` covers crashes; the Elastic IP and the S3 blobs survive the instance. | Fargate + ALB, after the next row |
+| Live loops are in-process, so there's exactly one replica | It's what keeps the code simple, and live sessions are a few hours a week | Move live state into Redis pub/sub (ElastiCache) and run the loops as one dedicated worker. API replicas then scale freely behind an ALB |
+| SQLite on one disk | One writer, small data | `F1_DATABASE_URL` to RDS Postgres; the code avoids SQLite-only features on purpose |
+| No CDN | The static files are small and gzipped | CloudFront in front of Caddy |
+| Deploys have a seconds-long gap | See 0.5 | Comes free with the "one live worker" change |
+| No metrics or alarms | Logs go to `docker logs` with rotation | The CloudWatch agent, or `--log-driver awslogs` (section 4) |
+
+### 0.8 Running it, and what it costs
+
+| State | What bills | About |
+|---|---|---|
+| **Running** (c7i-flex.large, 30 GB gp3, Elastic IP) | compute + disk + public IPv4 | **$68/month** |
+| **Stopped** (current) | disk + Elastic IP | **$6/month** |
+| **Torn down** (section 4, "Teardown") | the S3 archive only | **cents** |
+
+These are on-demand estimates. The account's Free plan refused `t3.medium`, which is why the instance type is `c7i-flex.large`.
+
+**To bring the public demo up** (from Git Bash or PowerShell, signed in with `aws login --region us-east-2`):
+
+1. Start the instance: `aws ec2 start-instances --instance-ids <id> --region us-east-2`.
+2. One-time switch to public:
+   - Open the firewall: 80 and 443 from `0.0.0.0/0` on `f1-dash-web`, and remove the old single-IP rule.
+   - Settings: `F1_PUBLIC_MODE=true`, `F1_LIVE_AUTOSTART=false`, `F1_PUBLIC_HOST=<ip-with-dashes>.sslip.io` and `F1_CORS_ORIGINS=https://<that host>`.
+   - Secrets: `F1_ADMIN_TOKEN` as a SecureString, and delete `F1TV_LOGIN_SESSION`.
+3. `scripts/deploy-aws.sh`. It installs Caddy, which fetches the certificate on first start.
+4. Build the season's races on the server: `POST /replays/{key}/build` with the `X-Admin-Token` header.
+5. Check `https://<host>/health`, then open the page.
+
+**To take it down again:** `aws ec2 stop-instances --instance-ids <id> --region us-east-2`.
 
 ---
+
+The rest of this document is the manual walk-through the architecture above was built from: installing tools, each resource by hand, the Fargate outline, running it, and troubleshooting.
 
 ## 1. Software you need to install (Windows 11)
 
@@ -903,36 +1025,19 @@ Fixes, cheapest first:
 
 ## What is deployed (current setup)
 
-A simpler variant of section 2 is live in `us-east-2`: no domain, no Caddy, no
-ECR. The image is built **on the instance** from a `git archive` tarball.
+The architecture in section 0, as built in `us-east-2` on 2026-11-03:
 
 | Piece | Value |
 | --- | --- |
-| URL | `http://3.19.133.243/` (plain HTTP; the security group only admits the owner's IP) |
-| Instance | `f1-dash` (tag `project=f1-dash`), `c7i-flex.large` (2 vCPU, 4 GiB; the account's Free plan blocks t3.medium), AL2023, 30 GB gp3 encrypted, IMDSv2, 2 GB swap |
-| Security group | `f1-dash-web`: inbound TCP 80 from one `/32` only. No SSH: use SSM Session Manager / Run Command |
-| IAM | role + instance profile `f1-dash-ec2`: SSM core, S3 on `prod/*` and `bootstrap/*` of the bucket only, `ssm:GetParameter*` on `/f1-dash/*` |
-| Bucket | `f1-dash-archive-<account-id>`: `prod/` is the app's blob store (`F1_S3_PREFIX=prod`), `bootstrap/` holds `src.tar.gz` and the initial data. `archive/` is the F1 timing backup and is untouched by the app role |
-| Secrets | SSM SecureString `/f1-dash/F1TV_LOGIN_SESSION`; every `/f1-dash/*` parameter becomes an env var on each deploy |
-| Data | SQLite at `/var/cache/f1/f1_dashboard.db` on the root volume, with model artifacts, replays and the FastF1 cache beside it, mounted into the container |
+| Instance | `f1-dash` (tag `project=f1-dash`), `c7i-flex.large`, AL2023, 30 GB gp3 encrypted, IMDSv2, 2 GB swap. **Stopped.** |
+| Address | an Elastic IP; the public host is `<ip-with-dashes>.sslip.io` |
+| Security group | `f1-dash-web`. It still admits only the owner's IP on 80: the demo was verified privately and stopped before it was opened to the public (section 0.8, step 2) |
+| IAM | role and instance profile `f1-dash-ec2`, as in 0.2 |
+| Bucket | `f1-dash-archive-<account-id>`: `prod/`, `bootstrap/`, `archive/` |
+| Deploy | `scripts/deploy-aws.sh` → `deploy/aws/f1-deploy.sh` on the instance |
+| Data | SQLite and caches in `/var/cache/f1`; Caddy's certificates in `/var/cache/caddy` |
 
-On the instance, `/usr/local/bin/f1-deploy` (written by user-data) reads SSM
-into `/etc/f1-dash/env`, downloads `bootstrap/src.tar.gz`, builds `f1-dash:latest`
-from `backend/`, restores `bootstrap/data/` only if the DB doesn't exist yet,
-removes the old `f1-api` container and starts a new one on port 80. Its log is
-`/var/log/f1-deploy.log`.
-
-**Redeploy** (from Git Bash, ships the committed `HEAD` only):
-
-```bash
-scripts/deploy-aws.sh
-```
-
-**Rotate the F1 TV cookie:** `aws ssm put-parameter --name /f1-dash/F1TV_LOGIN_SESSION --type SecureString --overwrite --value ...`, then redeploy.
-
-**Save money:** `aws ec2 stop-instances --instance-ids <id> --region us-east-2`
-stops compute billing (the volume and the Elastic IP still bill, about $5/month
-together). `start-instances` brings it back on the same IP; the container
-restarts by itself.
-
-**If your IP changes:** revoke the old `/32` rule on `f1-dash-web` and authorize the new one.
+Verified while it ran: `/health` 200, `/` → 307 to the dashboard, the replay
+list, `/live/status`, and car telemetry served from disk. The Caddy and
+public-mode steps are committed and tested in the unit suite, but they haven't
+been exercised on the instance yet, because it was stopped first.
