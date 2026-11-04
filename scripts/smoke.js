@@ -62,13 +62,28 @@ async function checkDashboard() {
   try {
     const response = await fetch(`${WEB}/`);
     const html = await response.text();
-    // One page: a circuit, a search that reaches every race, and a board of
-    // panels. Assert those are served rather than matching a title, which is
-    // free to change.
-    const parts = ['id="map"', 'id="search"', 'id="board"'];
+    // The markup the page actually ships: a search that reaches every race, a
+    // stage, the standings, and the module that fills them. The circuit is drawn
+    // by that module rather than written here, so it is checked below by
+    // fetching it -- not by looking for its id in the HTML, which passed for
+    // years only because the whole script used to be inline.
+    const parts = ['id="search"', 'id="stage"', 'id="tower"', 'js/boot.js'];
     report("dashboard html", response.ok && parts.every((part) => html.includes(part)));
   } catch (error) {
     report("dashboard html", false, `${error.message} (is \`npm start\` running?)`);
+  }
+}
+
+async function checkAssets() {
+  // A module graph fails quietly in a browser: one 404 and the page is blank
+  // with nothing in the log worth reading. Better to ask here.
+  for (const asset of ["dashboard.css", "js/boot.js", "js/core.js", "js/map.js"]) {
+    try {
+      const response = await fetch(`${WEB}/${asset}`);
+      report(`asset ${asset}`, response.ok, response.ok ? undefined : `HTTP ${response.status}`);
+    } catch (error) {
+      report(`asset ${asset}`, false, error.message);
+    }
   }
 }
 
@@ -102,6 +117,7 @@ function checkWebSocket(sessionId) {
   await checkHealth();
   const sessions = await checkSessions();
   await checkDashboard();
+  await checkAssets();
   await checkWebSocket(sessions[0]?.id ?? 1);
   console.log(`\n${failures ? failures + " check(s) failed" : "all checks passed"}`);
   process.exit(failures ? 1 : 0);

@@ -82,16 +82,18 @@ class TestMeta:
         response = client.get("/")
         assert response.status_code == 200
         assert "Live Prediction Dashboard" in response.text
-        # One page: a circuit, a search that reaches every race, a board of
-        # panels the viewer arranges, and the island that announces what just
-        # happened. If one of those stops being served the page is not the
-        # dashboard any more.
+        # The markup the page ships: a picker that reaches every race, the
+        # stage the circuit is drawn on, the standings, and the island that announces what
+        # just happened. If one of those stops being served the page is not
+        # the dashboard any more.
         #
-        # Race control used to be an overlay across the bottom of the circuit,
-        # which is the part of the page it was covering; it is now announced by
-        # the island instead, so that is what this checks for.
-        for marker in ('id="map"', 'id="search"', 'id="board"', 'id="countdown"',
-                       'id="island"', 'id="panelsMenu"'):
+        # The circuit and the countdown are not in this list. They are built by
+        # the page's own modules rather than written into the markup, so this
+        # checks that the entry point is served and leaves what it draws to the
+        # browser tests, which can actually see it. Both were previously
+        # asserted here and passed only because the whole script was inline.
+        for marker in ('id="search"', 'id="stage"', 'id="tower"', 'id="island"',
+                       'id="picker"', 'js/boot.js'):
             assert marker in response.text
 
 
@@ -184,3 +186,31 @@ class TestModels:
 
     def test_promoting_an_unknown_model_is_404(self, client):
         assert client.post("/models/999999/promote").status_code == 404
+
+
+def test_a_public_deployment_is_read_only_except_to_its_owner(client, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "PUBLIC_MODE", True)
+    monkeypatch.setattr(settings, "ADMIN_TOKEN", "owner-secret")
+
+    assert client.get("/app-config").json() == {"public": True}
+    assert client.get("/health").status_code == 200
+
+    refused = client.post("/replays/1/build")
+    assert refused.status_code == 403
+    assert refused.json()["detail"]["reason"] == "read_only"
+    assert client.post("/replays/1/build", headers={"x-admin-token": "wrong"}).status_code == 403
+    assert client.delete("/replays/1/predictions").status_code == 403
+
+    # The owner's token goes through to the endpoint itself.
+    allowed = client.post("/live/check", headers={"x-admin-token": "owner-secret"})
+    assert allowed.status_code != 403
+
+
+def test_without_an_admin_token_nobody_writes(client, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "PUBLIC_MODE", True)
+    monkeypatch.setattr(settings, "ADMIN_TOKEN", "")
+    assert client.post("/live/check", headers={"x-admin-token": ""}).status_code == 403

@@ -110,6 +110,30 @@ The API also serves the dashboard directly at <http://localhost:8000/>. The Node
 the frontend can live on its own origin — as it would behind a CDN — and to proxy the WebSocket
 upgrade in development.
 
+## Watching a session live
+
+OpenF1 serves running sessions only to paid (sponsor) accounts: while one is
+on, every unauthenticated request -- past sessions included -- gets a 401. To
+watch live, put the account in `backend/.env` (gitignored) and restart the API:
+
+```bash
+F1_OPENF1_USERNAME=you@example.com
+F1_OPENF1_PASSWORD=...
+```
+
+The rest is automatic. A watcher checks OpenF1 once a minute; when a session
+enters its live window it adds the session to the calendar if the seed stopped
+short, starts the position feed for the map, and for qualifying and races the
+prediction loop. The **Live** button in the top bar turns red -- press it, or
+open the page, and the map follows the cars about six seconds behind the track.
+When the session ends the feed stops and its replay is built, which also gives
+the next session at that circuit a layout to draw on (a first visit to a track
+builds last year's race there for one).
+
+The button is amber when a session is on but no account is configured, and
+`GET /live/status` says the same in JSON, including requests used in the last
+minute against the 60/min sponsor limit.
+
 ## How the work flows
 
 Four cycles, on four different clocks. Nothing in the fast ones waits on the
@@ -214,11 +238,73 @@ measured to be one.
 
 ## The race map
 
-The dashboard opens on the most recent race with a replay built: the circuit
-drawn as a glowing mustard outline, every car a dot in its team's colour, moving
-around the lap it actually drove, peeling into the pit lane when it stopped.
-Scrub, play at up to 60x, and the running order, flag state and race-control log
-follow the playhead.
+The dashboard is one sheet of dark liquid glass over a blurred photograph, with
+violet kept for the controls. The circuit is drawn large on it — white-edged
+asphalt over the circuit's real surroundings from OpenStreetMap: grass, gravel
+traps, stands (paler than the track), buildings, the other tarmac on site, and
+the pit lane drawn as a lane. Every car is a black disc ringed in its team's
+colour, moving around the lap it actually drove and peeling into the pit lane
+when it stopped. Scrub and play at up to 60x; the standings down the left edge
+follow the playhead, and race-control calls and overtakes surface in the island
+at the top.
+
+Flags are painted on the track itself. A yellow (or double yellow) turns that
+marshal sector's edge yellow with an orange marshal waving by it — two flags for
+a double, and a second marshal out at the edge when race control calls marshals
+onto the track. A waved blue flag paints the stretch around the car it was shown
+to, and follows it for a few seconds. A safety car or VSC marches amber round the
+whole lap; a red flag turns it red. The feed numbers marshal sectors without
+saying where they start, so a sector is placed by sharing the lap evenly: right
+part of the circuit, not the exact post.
+
+Every circuit maps itself. The first replay built at a circuit also builds its
+map; a circuit raced before maps existed is mapped the first time the dashboard
+asks for it (`GET /circuits/{name}/map` answers 202 `mapping` and the page asks
+again until it lands). By hand:
+
+```bash
+cd backend && .venv/Scripts/python scripts/build_circuit_maps.py --all   # every built circuit
+cd backend && .venv/Scripts/python scripts/build_circuit_maps.py Monza --force
+```
+
+`app/data/circuits/build.py` finds the venue (a table of every calendar circuit,
+then OSM's geocoder for a new one), downloads an area sized from the racing line
+(split into tiles when the API says it is too much — city circuits), lays the
+replay's racing line onto OSM's raceways (onto its roads at a street circuit
+with none) by ICP from many starting angles, and writes the features in the
+feed's own frame to `app/data/circuits/<circuit>.json`, served gzipped. A fit
+worse than 8 m is refused rather than drawn wrong. Mapped so far: Silverstone,
+Hungaroring, Zandvoort, Austin and Mexico City — about 2 m median miss each; any
+other circuit is mapped when a race there is built. A circuit with no map falls
+back to surroundings derived from the racing line.
+Map data © OpenStreetMap contributors (ODbL), credited on the page.
+
+Races, qualifying and practice all replay. A race is read lap by lap — the
+standings show the interval to the car ahead. Practice and qualifying are read
+by the clock from every timed lap: practice ranks best laps so far; qualifying
+ranks within the current part (Q1/Q2/Q3, cut from race control's start and
+chequered-flag calls), marks the drop zone with the margin to the line, and
+keeps the cars already knocked out classified below. A session that overran its
+slot — a delayed Q2 pushes Q3 past the hour — now plays to its last chequered
+flag instead of stopping at the schedule.
+
+Click a car, or its row in the standings, and a small glass card rides above it
+with speed, gear, throttle, brake and longitudinal g. Those come from OpenF1's
+`car_data` feed, fetched for the selected car only, two minutes at a time:
+
+```bash
+curl "http://localhost:8000/replays/11326/telemetry/16?t=3000"
+```
+
+The public feed reports brake as on/off rather than a pressure, and carries
+nothing on the battery, so neither is shown.
+
+The session title in the top bar opens the race picker: anything live now, the
+next sessions with a running countdown (from OpenF1's published schedule, via
+`GET /schedule`), and every race that has run. Choosing an upcoming session
+shows its circuit, if one has been built before, under the countdown.
+
+`?session=<key>` opens a particular built replay directly.
 
 None of that geometry is shipped with the project. OpenF1's `location` feed
 gives raw track X/Y per car, and `app/data/replay.py` turns a finished session
@@ -230,14 +316,18 @@ curl http://localhost:8000/replays                       # what is built
 npm run check:replay                                     # verify one end to end
 ```
 
-The **Replays** tab lists every race that has run this season and builds any of
-them on demand — one background job, a few minutes, then it plays instantly from
-cache.
+The picker lists every race that has run this season and builds any of them on
+demand — one background job, a few minutes, then it plays instantly from cache.
+While it builds, a card over the map shows the circuit tracing itself, the step
+the build is on and how many cars' positions are in (the job record now carries
+the latest stage's `detail`).
 
 ## The prediction panel
 
-The tab pinned to the right edge answers "who finishes where from here?" at the
-lap under the playhead, two ways that are deliberately not blended.
+**Predict** in the top bar (or `P`) summons it as a glass sheet over the right of
+the circuit that follows the lap under the playhead; it is served
+at `GET /replays/{key}/projection?lap=N`. It answers "who finishes where from
+here?" at a given lap, two ways that are deliberately not blended.
 
 **The projection** starts from where the cars actually are — track position is
 the strongest single predictor of a finishing order — and corrects it with the
@@ -414,6 +504,30 @@ recorded race still look right".
   position MAE 2.6–5.3 places. Race-strategy accuracy swings widely (0.0–0.95) because a held-out
   race can run strategies absent from a corpus this small; the validation detail reports
   `unseen_labels` so the number is read in context.
+
+## Deployment
+
+One EC2 instance on AWS, with **Caddy** in front for HTTPS. Full design, security
+model and runbook: [`DEPLOY-AWS.md`](DEPLOY-AWS.md).
+
+```
+browser ──https/wss──▶ Caddy (:443, Let's Encrypt) ──▶ f1-api (FastAPI, one worker)
+                                                          │  SQLite + caches on EBS
+                                                          ├─▶ S3: models, replays (prod/)
+                                                          └─▶ SSM: settings and secrets
+```
+
+- **One container on purpose.** The live loops, job queue and WebSocket
+  broadcaster live in the process, so a second replica would duplicate them.
+- **Public, but read-only.** `F1_PUBLIC_MODE=true` refuses every write at one
+  middleware unless the request carries `X-Admin-Token`, so anyone can watch and
+  nobody can retrain or delete.
+- **No keys anywhere.** The instance uses an IAM role, shell access is SSM
+  Session Manager (no SSH), and secrets are SSM SecureString parameters.
+- **One-command deploys.** `scripts/deploy-aws.sh` ships the committed `HEAD` and
+  runs `deploy/aws/f1-deploy.sh` on the instance over SSM.
+- **Cost.** About $68/month running, and $6/month stopped. It is kept stopped
+  between demos.
 
 ## Configuration
 

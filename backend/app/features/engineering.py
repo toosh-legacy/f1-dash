@@ -235,13 +235,6 @@ class FeatureVector:
     fallbacks_used: list[str]
     context_label: str
 
-    def as_row(self, feature_names: list[str]) -> list[float]:
-        return [self.values[name] for name in feature_names]
-
-    @property
-    def is_complete(self) -> bool:
-        return not self.fallbacks_used
-
 
 # --- computation -----------------------------------------------------------
 

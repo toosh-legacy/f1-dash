@@ -32,12 +32,6 @@ def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-class CircuitType(str, enum.Enum):
-    STREET = "street"
-    PERMANENT = "permanent"
-    HYBRID = "hybrid"
-
-
 class SessionType(str, enum.Enum):
     FP1 = "FP1"
     FP2 = "FP2"

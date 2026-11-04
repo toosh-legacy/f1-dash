@@ -36,6 +36,9 @@ class JobRecord:
     result: dict[str, Any] | None = None
     error: str | None = None
     stages: list[str] = field(default_factory=list)
+    #: The detail of the latest stage -- "car 7 of 22" while a replay's
+    #: position feed comes in -- so a progress display can say how far along.
+    detail: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -48,6 +51,7 @@ class JobRecord:
             "result": self.result,
             "error": self.error,
             "stages": self.stages,
+            "detail": self.detail,
         }
 
 
@@ -89,6 +93,7 @@ class ProgressReporter:
 
     def __call__(self, stage: str, detail: dict[str, Any] | None = None) -> None:
         self.record.stages.append(stage)
+        self.record.detail = detail
         log.info("[job %s] %s %s", self.record.id, stage, detail or "")
         if self.record.session_id is not None:
             broadcaster.publish_threadsafe(

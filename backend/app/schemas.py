@@ -113,6 +113,7 @@ class JobOut(BaseModel):
     result: dict[str, Any] | None = None
     error: str | None = None
     stages: list[str] = []
+    detail: dict[str, Any] | None = None
 
 
 class PromoteResponse(BaseModel):

@@ -14,6 +14,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.data import replay as R
+from app.data.replay import build, constants, geometry, narrative, shared
+from app.data.replay import frames as frames_mod
 
 
 TRACK_RADIUS = 4000.0
@@ -75,7 +77,7 @@ def race():
 class TestCircuitReconstruction:
     def test_a_sparse_feed_folds_back_into_the_shape_it_sampled(self, race):
         traces, laps = race
-        line = R._racing_line(traces, laps)
+        line = geometry._racing_line(traces, laps)
 
         assert len(line) > 100, "the fold should be far denser than any single lap"
         for x, y in line:
@@ -84,9 +86,9 @@ class TestCircuitReconstruction:
 
     def test_the_loop_closes(self, race):
         traces, laps = race
-        line = R._racing_line(traces, laps)
-        span = max(R._distance(line[0], point) for point in line)
-        assert R._distance(line[0], line[-1]) < span * 0.2
+        line = geometry._racing_line(traces, laps)
+        span = max(shared._distance(line[0], point) for point in line)
+        assert shared._distance(line[0], line[-1]) < span * 0.2
 
     def test_a_single_lap_is_too_sparse_to_draw(self, race):
         """The reason the fold exists: one lap is about thirty fixes."""
@@ -107,14 +109,14 @@ class TestCircuitReconstruction:
                 "is_pit_out_lap": False,
             }
         )
-        kept = R._representative_laps(laps)
+        kept = geometry._representative_laps(laps)
         assert all(lap["lap_duration"] == LAP_DURATION for lap in kept)
 
 
 class TestPitLane:
     def test_traced_from_the_cars_that_stopped(self, race):
         traces, laps = race
-        line = R._racing_line(traces, laps)
+        line = geometry._racing_line(traces, laps)
 
         # Car 4 peels off for one stop: the same stretch of track, 400 units to
         # the inside of it, which is what a pit lane looks like to the feed.
@@ -134,7 +136,7 @@ class TestPitLane:
                 "lap_number": 5,
             }
         ]
-        lane = R._pit_lane(traces, line, pits)
+        lane = geometry._pit_lane(traces, line, pits)
         assert lane, "the detour around a timed stop is the pit lane"
         # The lane is inside the oval, where the car went, not on the racing line.
         assert all(y < 0 for _x, y in lane), "the lane sits on the stretch it was traced from"
@@ -145,25 +147,25 @@ class TestPitLane:
 
     def test_no_stops_means_no_pit_lane(self, race):
         traces, laps = race
-        assert R._pit_lane(traces, R._racing_line(traces, laps), []) == []
+        assert geometry._pit_lane(traces, geometry._racing_line(traces, laps), []) == []
 
     def test_a_wrapped_lane_is_cut_at_its_widest_gap(self):
         """Pit entry sits before the line and exit after it, so the run wraps."""
         placed = [(0.02, 1.0, 1.0), (0.05, 2.0, 2.0), (0.94, 3.0, 3.0), (0.97, 4.0, 4.0)]
-        rotated = R._rotate_to_gap(placed)
+        rotated = geometry._rotate_to_gap(placed)
         assert [point[1] for point in rotated] == [3.0, 4.0, 1.0, 2.0]
 
 
 class TestPlayback:
     def _projected(self, line):
         traces = {7: [(0.0, *line[0]), (10.0, *line[5])]}
-        return R._project(traces, line, [])
+        return frames_mod._project(traces, line, [])
 
     def test_progress_interpolates_between_sparse_fixes(self, race):
         traces, laps = race
-        line = R._racing_line(traces, laps)
+        line = geometry._racing_line(traces, laps)
         projected = self._projected(line)
-        frames = R._build_frames(projected, len(line), 0.0, 10.0)
+        frames = frames_mod._build_frames(projected, len(line), 0.0, 10.0)
 
         values = [frame["cars"].get("7") for frame in frames]
         assert all(isinstance(value, float) or isinstance(value, int) for value in values)
@@ -171,9 +173,9 @@ class TestPlayback:
 
     def test_a_car_that_stops_reporting_leaves_the_map(self, race):
         traces, laps = race
-        line = R._racing_line(traces, laps)
-        projected = R._project({7: [(0.0, *line[0])]}, line, [])
-        frames = R._build_frames(projected, len(line), 0.0, R.SAMPLE_STALE_S + 10)
+        line = geometry._racing_line(traces, laps)
+        projected = frames_mod._project({7: [(0.0, *line[0])]}, line, [])
+        frames = frames_mod._build_frames(projected, len(line), 0.0, constants.SAMPLE_STALE_S + 10)
 
         assert "7" in frames[0]["cars"]
         assert "7" not in frames[-1]["cars"], "a retired car should not sit frozen on track"
@@ -181,9 +183,9 @@ class TestPlayback:
     def test_crossing_the_line_does_not_run_the_car_backwards(self, race):
         """Unwrapping is what keeps interpolation from reversing at start/finish."""
         traces, laps = race
-        line = R._racing_line(traces, laps)
+        line = geometry._racing_line(traces, laps)
         last, first = line[-2], line[2]
-        projected = R._project({7: [(0.0, *last), (4.0, *first)]}, line, [])
+        projected = frames_mod._project({7: [(0.0, *last), (4.0, *first)]}, line, [])
         values = [value for _t, value, _pit in projected[7]]
         assert values[1] > values[0], "progress must keep climbing through the line"
 
@@ -194,7 +196,7 @@ class TestPlayback:
             "date_start": START.isoformat(),
             "date_end": (START + timedelta(hours=2)).isoformat(),
         }
-        first, last = R._session_window(traces, meta)
+        first, last = build._session_window(traces, meta)
         assert first == START.timestamp()
         assert last - first <= 7200
 
@@ -207,19 +209,19 @@ class TestFlagState:
             {"date": (START - timedelta(minutes=40)).isoformat(), "message": "SAFETY CAR DEPLOYED"},
             {"date": (START + timedelta(minutes=20)).isoformat(), "message": "YELLOW FLAG"},
         ]
-        timeline = R._flag_timeline(control, t0)
+        timeline = narrative._flag_timeline(control, t0)
         assert [state for _offset, state in timeline] == ["yellow"]
 
     def test_frames_carry_the_state_that_applied_when_they_ran(self):
         frames = [{"t": float(second), "cars": {}} for second in range(0, 60, 10)]
-        R._annotate_frames(frames, [(0.0, 1)], [(25.0, "safety_car"), (45.0, "green")], {})
+        frames_mod._annotate_frames(frames, [(0.0, 1)], [(25.0, "safety_car"), (45.0, "green")], {})
         assert [frame["flag"] for frame in frames] == [
             "green", "green", "green", "safety_car", "safety_car", "green",
         ]
 
     def test_a_car_in_the_pits_is_marked_in_its_frames(self):
         frames = [{"t": float(second), "cars": {}} for second in range(0, 40, 10)]
-        R._annotate_frames(frames, [], [], {44: [(15.0, 25.0)]})
+        frames_mod._annotate_frames(frames, [], [], {44: [(15.0, 25.0)]})
         assert [frame.get("pit") for frame in frames] == [None, None, [44], None]
 
 
@@ -234,7 +236,7 @@ class TestCatalogue:
         def close(self):
             pass
 
-    def test_only_races_that_have_started_are_listed(self):
+    def test_only_sessions_that_have_started_are_listed(self):
         rows = [
             {"session_key": 1, "session_type": "Race", "session_name": "Race",
              "date_start": "2026-03-08T04:00:00+00:00", "circuit_short_name": "Melbourne"},
@@ -248,7 +250,8 @@ class TestCatalogue:
             client=self._Client(rows),
             now=datetime(2026, 8, 28, tzinfo=timezone.utc),
         )
-        assert [entry.session_key for entry in entries] == [1]
+        # Newest first; the race not yet run is left out, qualifying is in.
+        assert [entry.session_key for entry in entries] == [1, 3]
 
     def test_sprints_can_be_excluded(self):
         rows = [

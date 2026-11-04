@@ -1,0 +1,964 @@
+/* The dashboard's stylesheet.
+ *
+ * One surface: a sheet of liquid glass filling the window, the circuit drawn
+ * large on it over a simplified map of its surroundings, and three pieces of
+ * glass chrome floating over the edges -- the top bar, the timing tower and
+ * the transport. Nothing is a panel; the circuit is the page.
+ */
+:root {
+  --bg: #05070a;
+  --text: #f1f3f6;
+  --muted: rgba(235, 240, 248, .62);
+  --dim: rgba(235, 240, 248, .40);
+  --line: rgba(255, 255, 255, .10);
+  --line-soft: rgba(255, 255, 255, .06);
+
+  --red: #ff2b39;
+  --red-deep: #a30f19;
+  --red-glow: rgba(255, 43, 57, .45);
+  --blue: #3d8bff;
+  --blue-deep: #10428f;
+  --blue-glow: rgba(61, 139, 255, .45);
+  --green: #35c46b;
+  --amber: #f0b429;
+
+  /* The one accent: violet. Selection, focus, progress, the brand. */
+  --accent: #9d6bff;
+  --accent-hi: #c4a2ff;
+  --accent-deep: #5b2fd1;
+  --accent-glow: rgba(157, 107, 255, .45);
+  --accent-wash: rgba(157, 107, 255, .14);
+
+  /* The map, in the muted, translucent palette of a simplified street map. */
+  --land: rgba(140, 160, 150, .05);
+  --grass: rgba(86, 160, 96, .16);
+  --infield: rgba(86, 160, 96, .10);
+  --runoff: rgba(196, 204, 196, .07);
+  --road: rgba(220, 228, 236, .22);
+  --asphalt: #26292f;
+  --kerb: #f4f6f8;
+
+  /* Glass. */
+  --glass: rgba(255, 255, 255, .055);
+  --glass-strong: rgba(18, 22, 28, .52);
+  --glass-rim: rgba(255, 255, 255, .16);
+  --glass-shine: rgba(255, 255, 255, .22);
+
+  --ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI",
+        Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  --z-stage: 1;
+  --z-chrome: 20;
+  --z-probe: 30;
+  --z-popover: 4000;
+  --z-toast: 5000;
+  --z-boot: 9000;
+
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --spring: cubic-bezier(.34, 1.4, .5, 1);
+  --tower-w: 316px;
+}
+* { box-sizing: border-box; }
+* { scrollbar-width: none; -ms-overflow-style: none; }
+*::-webkit-scrollbar { width: 0; height: 0; display: none; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 400 14px/1.5 var(--ui);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+button, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- the loading screen ----------
+   The same dead channel as the background, turned all the way up: a set
+   warming to a signal it has not found yet. It goes when the page has data. */
+#boot {
+  position: fixed; inset: 0; z-index: var(--z-boot); background: #000;
+  display: grid; place-items: center;
+  transition: opacity .55s ease, visibility .55s;
+}
+#boot.done { opacity: 0; visibility: hidden; pointer-events: none; }
+#bootCanvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .55; }
+#bootVeil {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(62% 46% at 50% 50%, rgba(0,0,0,.88), rgba(0,0,0,.45) 62%, rgba(0,0,0,.82)),
+    repeating-linear-gradient(180deg, rgba(0,0,0,.42) 0 1px, transparent 1px 3px);
+}
+.boot-card { position: relative; z-index: 3; text-align: center; padding: 0 24px; }
+.glitch {
+  position: relative; display: inline-block; color: #fff;
+  font: 800 clamp(34px, 8vw, 92px)/1 var(--ui); letter-spacing: -0.05em;
+  text-shadow: 0 0 34px rgba(255,255,255,.12);
+}
+.glitch::before, .glitch::after {
+  content: attr(data-text); position: absolute; left: 0; top: 0; width: 100%;
+  pointer-events: none;
+}
+.glitch::before { color: var(--red); text-shadow: 2px 0 var(--red); animation: glitchRed 2.6s infinite steps(1, end); }
+.glitch::after  { color: var(--blue); text-shadow: -2px 0 var(--blue); animation: glitchBlue 3.3s infinite steps(1, end); }
+@keyframes glitchRed {
+  0%, 62%, 100% { clip-path: inset(0 0 100% 0); transform: none; }
+  64% { clip-path: inset(14% 0 62% 0); transform: translate(-5px, -1px); }
+  67% { clip-path: inset(58% 0 24% 0); transform: translate(4px, 1px); }
+  70% { clip-path: inset(32% 0 48% 0); transform: translate(-3px, 0); }
+  73% { clip-path: inset(0 0 100% 0); transform: none; }
+  88% { clip-path: inset(72% 0 8% 0); transform: translate(6px, 0); }
+  91% { clip-path: inset(0 0 100% 0); transform: none; }
+}
+@keyframes glitchBlue {
+  0%, 40%, 100% { clip-path: inset(0 0 100% 0); transform: none; }
+  42% { clip-path: inset(44% 0 36% 0); transform: translate(5px, 1px); }
+  45% { clip-path: inset(8% 0 76% 0); transform: translate(-6px, -1px); }
+  48% { clip-path: inset(0 0 100% 0); transform: none; }
+  80% { clip-path: inset(62% 0 18% 0); transform: translate(-5px, 0); }
+  83% { clip-path: inset(0 0 100% 0); transform: none; }
+}
+.boot-sub {
+  margin-top: 14px; font-family: var(--mono); font-size: 12px; letter-spacing: .22em;
+  text-transform: uppercase; color: var(--muted);
+}
+.boot-bar {
+  margin: 22px auto 0; width: min(340px, 70vw); height: 2px; background: #1b1f27;
+  border-radius: 2px; overflow: hidden;
+}
+.boot-bar i {
+  display: block; height: 100%; width: 30%;
+  background: linear-gradient(90deg, transparent, var(--red), var(--blue), transparent);
+  animation: bootSweep 1.35s cubic-bezier(.6,0,.4,1) infinite;
+}
+@keyframes bootSweep { 0% { transform: translateX(-110%); } 100% { transform: translateX(360%); } }
+#bootStage { margin-top: 12px; font-family: var(--mono); font-size: 11.5px; color: var(--dim); min-height: 16px; }
+@media (prefers-reduced-motion: reduce) {
+  .glitch::before, .glitch::after, .boot-bar i { animation: none; }
+}
+
+/* ---------- the island ----------
+   One place, at the top of the page, for anything the page wants to say.
+
+   At rest it is a small pill carrying the state of the session -- the flag and
+   the lap -- which is worth having on screen anyway. When something happens it
+   grows to fit what it has to say, says it, and shrinks back. Growing and
+   shrinking is the whole idea: it is the same object throughout, so there is
+   never a stack of cards to read or dismiss, and it never covers the circuit.
+
+   Width and height are animated between measured pixel values, because a
+   transition cannot run to `auto`. #islandSizer lays the next content out
+   off-screen to find out how big the island needs to become. */
+#island {
+  position: fixed; top: 12px; left: 50%; z-index: var(--z-toast);
+  transform: translateX(-50%);
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; border-radius: 999px;
+  background: #000;
+  border: 1px solid rgba(255,255,255,.09);
+  box-shadow: 0 10px 30px -8px rgba(0,0,0,.8), 0 2px 8px rgba(0,0,0,.6),
+              inset 0 1px 0 rgba(255,255,255,.06);
+  width: 168px; height: 34px;
+  transition: width .52s cubic-bezier(.16,1.16,.3,1),
+              height .52s cubic-bezier(.16,1.16,.3,1);
+  will-change: width, height;
+}
+#island.hidden { opacity: 0; pointer-events: none; transition: opacity .3s ease; }
+#island.speaking { border-color: rgba(255,255,255,.16); }
+
+#islandInner, #islandSizer {
+  display: flex; align-items: center; gap: 11px;
+  padding: 5px 16px; white-space: nowrap;
+}
+#islandInner {
+  transition: opacity .2s ease, transform .34s cubic-bezier(.16,1.16,.3,1),
+              filter .24s ease;
+}
+#islandInner.swap { opacity: 0; transform: scale(.86); filter: blur(5px); }
+
+#islandSizer {
+  position: fixed; top: -400px; left: -9999px; visibility: hidden;
+  pointer-events: none; height: auto;
+}
+
+.isl-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: var(--dim); box-shadow: 0 0 8px currentColor;
+}
+.isl-dot.green   { background: var(--green); color: var(--green); }
+.isl-dot.yellow, .isl-dot.vsc, .isl-dot.safety_car { background: var(--amber); color: var(--amber); }
+.isl-dot.red_flag { background: var(--red); color: var(--red); }
+.isl-dot.pass    { background: var(--accent); color: var(--accent); }
+.isl-dot.control { background: var(--red); color: var(--red); }
+.isl-dot.drop    { background: var(--amber); color: var(--amber); }
+
+.isl-idle {
+  font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--muted); font-weight: 600;
+}
+.isl-idle b { color: var(--text); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+
+.isl-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.isl-text b {
+  font-size: 13px; font-weight: 650; letter-spacing: -0.01em; color: #fff; line-height: 1.25;
+}
+.isl-text small { font-size: 11.5px; color: var(--muted); line-height: 1.3; }
+.isl-stamp {
+  font-family: var(--mono); font-size: 10.5px; color: var(--dim); flex: none;
+  padding-left: 2px;
+}
+
+/* Time running out, drawn around the bottom of the pill. */
+#islandLife {
+  position: absolute; left: 0; bottom: 0; height: 2px; width: 100%;
+  transform-origin: 0 50%; transform: scaleX(0); opacity: .55;
+}
+#islandLife.pass { background: var(--accent); }
+#islandLife.control { background: var(--red); }
+#islandLife.drop { background: var(--amber); }
+
+@media (max-width: 900px) { #island { display: none; } }
+@media (prefers-reduced-motion: reduce) {
+  #island, #islandInner { transition: none; }
+}
+
+/* ---------- what is behind the glass ----------
+   Spa in the wet, out of focus: a real place for the glass to bend instead
+   of washes of colour. Blurred once, offline (img/backdrop.jpg), so the page
+   never pays for a blur this size; darkened toward the edges so the chrome
+   reads over it. */
+#backdrop {
+  position: fixed; inset: -2%; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(120% 90% at 50% 45%, rgba(4,5,7,.25), rgba(4,5,7,.78) 78%, #040507),
+    url("img/backdrop.jpg") center 38% / cover no-repeat,
+    #0b0c0f;
+}
+
+/* ---------- the glass ----------
+   One sheet filling the window. Frosted, with a bright rim where light
+   catches the edge, a specular sweep across the top-left, and a faint inner
+   shadow so it reads as thick rather than as a tint. */
+#glass {
+  position: fixed; inset: 12px; z-index: var(--z-stage);
+  border-radius: 30px; overflow: hidden;
+  background: rgba(10, 11, 14, .34);
+  /* No backdrop-filter on the sheet itself: all that is behind it is the
+     ambient light, which is already soft, and blurring the whole window again
+     every frame was the second-largest cost on the page. */
+  border: 1px solid var(--glass-rim);
+  box-shadow:
+    0 40px 90px -30px rgba(0,0,0,.8),
+    inset 0 1px 0 var(--glass-shine),
+    inset 0 -1px 0 rgba(255,255,255,.05),
+    inset 0 0 60px rgba(255,255,255,.025);
+}
+/* The specular highlight: light rolling off the curved edge of the sheet. */
+#glass::before {
+  content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+  background:
+    radial-gradient(120% 60% at 0% 0%, rgba(255,255,255,.10), transparent 45%),
+    radial-gradient(80% 40% at 100% 100%, rgba(255,255,255,.05), transparent 50%);
+  mix-blend-mode: screen;
+}
+/* A rim that is brighter where the light is. */
+#glass::after {
+  content: ""; position: absolute; inset: 0; pointer-events: none; border-radius: inherit;
+  padding: 1px;
+  /* Bright where the light lands, gone to black on the far side: the rim of
+     a thick pane, not a tint. */
+  background: conic-gradient(from 200deg at 50% 50%,
+    rgba(255,255,255,.55), rgba(255,255,255,.08) 18%, rgba(0,0,0,.6) 40%,
+    rgba(0,0,0,.6) 58%, rgba(255,255,255,.08) 76%, rgba(255,255,255,.55));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+
+/* Smaller pieces of the same glass, floating over the sheet. */
+.glass-chip {
+  position: absolute; z-index: var(--z-chrome);
+  background: rgba(12, 13, 17, .5);
+  backdrop-filter: blur(22px) saturate(1.6);
+  -webkit-backdrop-filter: blur(22px) saturate(1.6);
+  border: 1px solid rgba(255,255,255,.13);
+  /* Specular top edge, black bottom edge: the contrast is the highlight. */
+  box-shadow: 0 18px 40px -16px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.22),
+              inset 0 -1px 0 rgba(0,0,0,.55);
+}
+
+/* ---------- the stage: the map and the cars ---------- */
+#stage { position: absolute; inset: 0; }
+svg#map { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+
+#infield { fill: var(--infield); stroke: none; }
+#serviceRoad    { fill: none; stroke: var(--road); stroke-linejoin: round; }
+#serviceRoadCut { fill: none; stroke: #000; stroke-linejoin: round; }
+#grass  { fill: none; stroke: var(--grass); stroke-linejoin: round; stroke-linecap: round; }
+#runoff { fill: none; stroke: var(--runoff); stroke-linejoin: round; stroke-linecap: round; }
+/* ---------- the real surroundings (OpenStreetMap) ----------
+   Its own layer under the circuit, faded out toward the edges of the page so
+   the photograph behind the glass shows round it. Grass is green, gravel is
+   sand, stands are paler than the track and buildings sit between. */
+svg#mapBase {
+  position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none;
+  -webkit-mask-image: radial-gradient(75% 80% at 58% 52%, #000 55%, transparent 100%);
+          mask-image: radial-gradient(75% 80% at 58% 52%, #000 55%, transparent 100%);
+}
+#osm path { stroke-linejoin: round; stroke-linecap: round; }
+#osm-grass    { fill: rgba(78, 140, 74, .62); }
+#osm-wood     { fill: rgba(38, 86, 46, .72); }
+#osm-water    { fill: rgba(52, 104, 150, .6); }
+#osm-paved    { fill: rgba(64, 66, 72, .55); }
+#osm-gravel   { fill: rgba(196, 176, 130, .55); }
+#osm-road     { fill: none; stroke: rgba(150, 154, 162, .32); }
+#osm-tarmac   { fill: none; stroke: rgba(58, 60, 66, .85); }
+#osm-building { fill: rgba(118, 122, 130, .5); stroke: rgba(0,0,0,.25); stroke-width: .6; }
+#osm-stand    { fill: rgba(214, 218, 226, .82); stroke: rgba(255,255,255,.5); stroke-width: .8; }
+/* With a real map, the surroundings guessed from the racing line step aside. */
+body.has-osm #terrain { display: none; }
+#osmCredit {
+  position: absolute; right: 22px; bottom: 76px; z-index: 3;
+  font-size: 10px; color: rgba(255,255,255,.4);
+}
+#osmCredit a { color: inherit; }
+#osmCredit[hidden] { display: none; }
+
+/* The pit lane: a lane, narrower than the track, edged in white with the
+   speed-limit line down its middle. */
+#pitEdge    { fill: none; stroke: rgba(255,255,255,.8); stroke-linejoin: round; stroke-linecap: butt; }
+#pitSurface { fill: none; stroke: #3a3d44; stroke-linejoin: round; stroke-linecap: butt; }
+#pitMark    { fill: none; stroke: rgba(255,255,255,.45); stroke-dasharray: 5 6; stroke-linejoin: round; }
+#trackEdge    { fill: none; stroke: var(--kerb); stroke-linejoin: round; stroke-linecap: round; }
+#trackSurface { fill: none; stroke: var(--asphalt); stroke-linejoin: round; stroke-linecap: round; }
+/* A faint racing line down the middle: the rubber laid down over a race. */
+#trackSheen   { fill: none; stroke: rgba(255,255,255,.07); stroke-linejoin: round;
+  stroke-dasharray: 2 10; }
+#startLine { stroke: url(#chequer); }
+
+/* ---------- flags, painted on the edge of the track ---------- */
+.flag-edge { fill: none; stroke-linejoin: round; stroke-linecap: round; }
+.flag-edge.yellow        { stroke: #ffd21f; animation: flagPulse 1.1s ease-in-out infinite; }
+.flag-edge.yellow.double { stroke: #ffc400; animation-duration: .55s; }
+.flag-edge.blue          { stroke: #2f8cff; animation: flagPulse .7s ease-in-out infinite; }
+.flag-edge.red           { stroke: #ff2b39; }
+.flag-edge.neutralised   { stroke: #ffb020; stroke-dasharray: 14 10; animation: flagMarch 1.2s linear infinite; }
+@keyframes flagPulse { 50% { opacity: .55; } }
+@keyframes flagMarch { to { stroke-dashoffset: -48; } }
+
+/* A marshal: an orange figure behind the barrier, waving. */
+.marshal { pointer-events: none; }
+.marshal line, .marshal circle { stroke: #ff8a1f; stroke-width: 1.7; stroke-linecap: round; fill: none; }
+.marshal .m-head { fill: #ff8a1f; }
+.marshal .m-pole { stroke: #e9e9e9; stroke-width: 1; }
+.marshal .m-flag { fill: #ffd21f; stroke: rgba(0,0,0,.4); stroke-width: .5; }
+.marshal .m-body { filter: drop-shadow(0 0 1.5px rgba(0,0,0,.9)); animation: marshalIn .4s var(--spring) both; }
+.marshal .m-arm.right { animation: wave .5s ease-in-out infinite alternate; transform-origin: 0 0; }
+.marshal .m-arm.left  { animation: waveL .5s ease-in-out infinite alternate; transform-origin: 0 0; }
+.marshal.on-track .m-body { animation: marshalIn .4s var(--spring) both, bob .9s ease-in-out infinite; }
+@keyframes wave  { from { rotate: -14deg; } to { rotate: 22deg; } }
+@keyframes waveL { from { rotate: 14deg; } to { rotate: -22deg; } }
+@keyframes bob { 50% { translate: 0 -1px; } }
+@keyframes marshalIn { from { scale: 0; opacity: 0; } }
+
+/* ---------- the cars ----------
+   Dark discs in the page's own black, ringed in the team colour, with the
+   code in white: every car reads the same against grass, gravel or tarmac,
+   and a team's two cars are told apart by the code. */
+.car { cursor: pointer; outline: none; }
+.car-halo { r: calc(var(--car-r, 13px) + 7px); opacity: 0; transition: opacity .2s ease; }
+.car-dot {
+  fill: #0d0f13; stroke: var(--team, #888); stroke-width: 3;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,.7));
+  transition: stroke-width .15s ease;
+}
+.car:hover .car-dot, .car:focus-visible .car-dot { stroke-width: 4; }
+.car-label {
+  fill: #fff;
+  font-size: calc(var(--car-r, 13px) * .7); font-weight: 800; letter-spacing: -.03em;
+  text-anchor: middle; dominant-baseline: central; pointer-events: none;
+}
+.car.pit .car-dot { opacity: .5; }
+.car.pit .car-label { opacity: .7; }
+.car.selected .car-halo { opacity: .45; fill: var(--accent); animation: pulse 1.8s ease-in-out infinite; }
+.car.selected .car-dot { stroke-width: 4; fill: #000; }
+@keyframes pulse { 50% { opacity: .15; } }
+@media (prefers-reduced-motion: reduce) {
+  .car.selected .car-halo, .flag-edge, .marshal .m-arm, .marshal .m-body { animation: none !important; }
+}
+
+/* ---------- a replay being built ---------- */
+#building {
+  position: absolute; inset: 0 0 0 calc(var(--tower-w) + 28px); z-index: 6;
+  display: grid; place-items: center; padding: 24px; pointer-events: none;
+}
+#building[hidden] { display: none; }
+.build-plate {
+  width: min(380px, 100%); padding: 26px 26px 22px; border-radius: 26px; text-align: center;
+  background: rgba(8, 9, 12, .72);
+  backdrop-filter: blur(20px) saturate(1.3); -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 30px 70px -30px #000, inset 0 1px 0 rgba(255,255,255,.2), inset 0 -1px 0 rgba(0,0,0,.6);
+  opacity: 0; scale: .94; filter: blur(6px);
+  transition: opacity .3s ease, scale .45s var(--spring), filter .3s ease;
+}
+#building.in .build-plate { opacity: 1; scale: 1; filter: none; }
+.build-art { width: 170px; height: 113px; overflow: visible; }
+.build-ghost { fill: none; stroke: rgba(255,255,255,.1); stroke-width: 5; stroke-linejoin: round; }
+.build-trace {
+  fill: none; stroke: #fff; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round;
+  stroke-dasharray: 100; stroke-dashoffset: 100;
+  animation: traceDraw 2.6s cubic-bezier(.6,.05,.3,1) infinite;
+}
+@keyframes traceDraw {
+  0% { stroke-dashoffset: 100; opacity: 1; }
+  70% { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+.build-car { fill: var(--accent); filter: drop-shadow(0 0 4px var(--accent-glow)); }
+.build-title { margin-top: 10px; font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+.build-steps {
+  list-style: none; padding: 0; margin: 14px 0 12px; display: flex; justify-content: center; gap: 6px;
+  flex-wrap: wrap;
+}
+.build-steps li {
+  font-size: 10.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 99px; color: var(--dim);
+  border: 1px solid rgba(255,255,255,.08);
+  transition: color .3s ease, border-color .3s ease, background .3s ease;
+}
+.build-steps li.done { color: var(--muted); }
+.build-steps li.done::before { content: "\2713  "; color: var(--green); }
+.build-steps li.now { color: #fff; border-color: rgba(157,107,255,.55); background: rgba(157,107,255,.16); }
+.build-bar { height: 4px; border-radius: 3px; background: rgba(255,255,255,.1); overflow: hidden; }
+.build-bar i {
+  display: block; height: 100%; background: var(--accent); transform-origin: 0 50%; transform: scaleX(.02);
+  transition: transform .8s var(--ease-out);
+}
+.build-detail { margin-top: 9px; font-size: 12px; color: var(--muted); min-height: 18px; font-family: var(--mono); }
+body.building #countdown { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .build-trace { animation: none; stroke-dashoffset: 0; }
+}
+
+/* ---------- the countdown, before a race has run ----------
+   On a plate of its own glass, so the circuit drawn underneath never fights
+   the numbers, and sized from the space it has (container units), so the
+   clock always fits on one line beside the standings. */
+#countdown {
+  position: absolute; inset: 0 0 0 calc(var(--tower-w) + 28px); display: grid; place-items: center;
+  pointer-events: none; z-index: 2; container-type: size; padding: 90px 24px 40px;
+}
+#countdown[hidden] { display: none; }
+.cd-plate {
+  text-align: center; padding: clamp(18px, 3.4cqh, 32px) clamp(22px, 5cqw, 52px);
+  border-radius: 28px; max-width: 100%;
+  background: rgba(8, 9, 12, .62);
+  backdrop-filter: blur(18px) saturate(1.3); -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  border: 1px solid rgba(255,255,255,.12);
+  box-shadow: 0 30px 70px -30px #000, inset 0 1px 0 rgba(255,255,255,.2), inset 0 -1px 0 rgba(0,0,0,.6);
+  animation: heroIn .7s var(--ease-out) both;
+}
+#countdown .c {
+  font-size: clamp(16px, 3.2cqw, 24px); font-weight: 750; letter-spacing: -.02em; margin-bottom: 12px;
+}
+#countdown .k {
+  font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: var(--accent-hi); font-weight: 650;
+}
+#countdown .t {
+  font-family: var(--mono); font-weight: 700; color: #fff; white-space: nowrap;
+  font-size: clamp(34px, min(10cqw, 16cqh), 104px);
+  letter-spacing: -0.04em; margin: 6px 0 8px; line-height: 1.05;
+  text-shadow: 0 6px 30px rgba(0,0,0,.7);
+}
+#countdown .w { color: var(--muted); font-size: 12.5px; }
+@keyframes heroIn { from { opacity: 0; translate: 0 14px; filter: blur(8px); } }
+@media (prefers-reduced-motion: reduce) { .cd-plate { animation: none; } }
+
+/* Nothing to play before a session has run, so the transport steps away. */
+#transport { transition: translate .45s var(--ease-out), opacity .3s ease; }
+body[data-view="next"] #transport { translate: 0 120%; opacity: 0; pointer-events: none; }
+
+/* ---------- top bar ---------- */
+#topbar {
+  top: 14px; left: calc(14px + var(--tower-w) + 14px); height: 48px; border-radius: 16px;
+  display: flex; align-items: center; gap: 10px; padding: 0 14px 0 16px;
+  max-width: calc(100% - var(--tower-w) - 56px - 260px);
+}
+.brand {
+  font-weight: 900; font-size: 16px; letter-spacing: -.04em; font-style: italic;
+  color: #fff;
+}
+
+/* The session title is the button that changes it. */
+.picker-btn {
+  display: flex; align-items: center; gap: 9px; min-width: 0; height: 34px;
+  padding: 0 10px 0 6px; border-radius: 11px; border: 1px solid transparent;
+  background: transparent; color: var(--text); font-weight: 650; font-size: 13.5px;
+  transition: background .18s ease, border-color .18s ease;
+}
+.picker-btn:hover, .picker-btn[aria-expanded="true"] {
+  background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.1);
+}
+.picker-btn #sessionTitle { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-btn svg { width: 12px; height: 12px; flex: none; fill: none; stroke: var(--muted);
+  stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+  transition: rotate .28s var(--ease-out); }
+.picker-btn[aria-expanded="true"] svg { rotate: 180deg; }
+.mode-tag {
+  font-size: 9.5px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+  padding: 3px 7px; border-radius: 6px; flex: none;
+  color: var(--accent-hi); background: var(--accent-wash); border: 1px solid rgba(157,107,255,.35);
+}
+.mode-tag.live { color: #ffb4b9; background: rgba(255,43,57,.14); border-color: rgba(255,43,57,.45); }
+.mode-tag.next { color: #e7dcff; }
+
+/* ---------- the race picker ---------- */
+#picker {
+  top: calc(14px + 48px + 8px); left: calc(14px + var(--tower-w) + 14px);
+  width: 380px; max-height: min(70vh, 620px); border-radius: 20px;
+  display: flex; flex-direction: column; overflow: hidden; z-index: var(--z-popover);
+  background: linear-gradient(160deg, rgba(255,255,255,.12), rgba(255,255,255,.02) 50%), rgba(18,14,30,.9);
+  backdrop-filter: blur(32px) saturate(1.8); -webkit-backdrop-filter: blur(32px) saturate(1.8);
+  transform-origin: 30% 0;
+  opacity: 0; scale: .96; translate: 0 -6px; filter: blur(6px);
+  transition: opacity .2s ease, scale .32s var(--ease-out), translate .32s var(--ease-out), filter .22s ease;
+}
+#picker.open { opacity: 1; scale: 1; translate: 0 0; filter: none; }
+#picker[hidden] { display: none; }
+.finder { position: relative; padding: 10px 10px 6px; flex: none; }
+.finder svg { position: absolute; left: 22px; top: 50%; translate: 0 -30%; width: 14px; height: 14px;
+  fill: none; stroke: var(--dim); stroke-width: 1.6; stroke-linecap: round; pointer-events: none; }
+.finder input[type=search] {
+  width: 100%; height: 36px; padding: 0 12px 0 34px; border-radius: 11px;
+  background: rgba(0,0,0,.28); border: 1px solid rgba(255,255,255,.08); font-size: 13px;
+}
+.finder input[type=search]::placeholder { color: var(--dim); }
+.finder input[type=search]:focus { outline: none; border-color: rgba(157,107,255,.6);
+  box-shadow: 0 0 0 3px var(--accent-wash); }
+.results { overflow: auto; padding: 0 6px 8px; }
+.results .group {
+  padding: 10px 10px 4px; font-size: 10px; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--dim);
+}
+.result {
+  width: 100%; display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center;
+  padding: 8px 10px; border-radius: 12px; border: 0; background: transparent; text-align: left;
+  transition: background .15s ease;
+  animation: rowIn .38s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 18ms);
+}
+@keyframes rowIn { from { opacity: 0; translate: 0 6px; } }
+.result:hover, .result.active { background: rgba(255,255,255,.08); }
+.result.active { box-shadow: inset 2px 0 0 var(--accent); }
+.result b { font-weight: 650; font-size: 13px; display: block; }
+.result small { color: var(--dim); font-size: 11.5px; display: block; }
+.r-date { color: var(--dim); font-size: 11px; }
+.results .empty { color: var(--muted); padding: 18px; text-align: center; font-size: 12.5px; }
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 10px; font-weight: 650; padding: 3px 8px; border-radius: 999px;
+  border: 1px solid var(--line); color: var(--muted); white-space: nowrap;
+}
+.badge.ready { color: var(--accent-hi); border-color: rgba(157,107,255,.4); background: var(--accent-wash); }
+.badge.soon { color: #e7dcff; border-color: rgba(255,255,255,.16); font-family: var(--mono); font-weight: 500; }
+.badge.live { color: #ffb4b9; border-color: rgba(255,43,57,.5); background: rgba(255,43,57,.14); }
+.badge.live i { width: 6px; height: 6px; border-radius: 50%; background: #ff4652;
+  box-shadow: 0 0 8px #ff4652; animation: blink 1.4s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: .3; } }
+@media (prefers-reduced-motion: reduce) {
+  .result, .badge.live i { animation: none; }
+  #picker { transition: opacity .15s ease; }
+}
+
+.status { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: rgba(255,255,255,.3); flex: none; }
+.dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); }
+.dot.error { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+.flag {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+  padding: 3px 9px; border-radius: 999px; border: 1px solid; flex: none; white-space: nowrap;
+}
+.flag.green { color: #8ee6a8; border-color: rgba(53,196,107,.4); background: rgba(53,196,107,.12); }
+.flag.yellow, .flag.vsc, .flag.safety_car { color: var(--amber); border-color: rgba(240,180,41,.45); background: rgba(240,180,41,.12); }
+.flag.red_flag { color: #ff8189; border-color: rgba(255,43,57,.5); background: rgba(255,43,57,.14); }
+
+/* ---------- the timing tower ---------- */
+#tower {
+  top: 14px; left: 14px; bottom: 14px; width: var(--tower-w); border-radius: 22px;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.tower-head {
+  display: flex; align-items: flex-end; justify-content: space-between; gap: 10px;
+  padding: 16px 16px 10px; border-bottom: 1px solid var(--line-soft); flex: none;
+}
+.tower-kind { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 650; }
+.tower-lap { font-size: 18px; font-weight: 700; letter-spacing: -.02em; margin-top: 2px; }
+.tower-col { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
+  font-weight: 650; text-align: right; }
+.tower-col span { display: block; color: rgba(255,90,100,.7); }
+#towerRows { flex: 1; overflow: auto; padding: 6px 6px 8px; }
+.tower-row {
+  width: 100%; display: grid; grid-template-columns: 22px 4px 1fr 34px 70px;
+  align-items: center; gap: 9px; padding: 0 10px; height: 34px;
+  background: transparent; border: 0; border-radius: 10px; text-align: left;
+  transition: background .15s ease;
+}
+.tower-row:hover { background: rgba(255,255,255,.06); }
+.tower-row.selected { background: rgba(157,107,255,.16); box-shadow: inset 0 0 0 1px rgba(157,107,255,.5); }
+.tower-row .pos { font-size: 12.5px; font-weight: 700; color: var(--muted); text-align: right; }
+.tower-row.leader .pos { color: #fff; }
+.tower-row .team { width: 4px; height: 18px; border-radius: 2px; background: var(--team); }
+.tower-row .who { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.tower-row .who b { font-size: 13.5px; font-weight: 750; letter-spacing: -.01em; }
+.tower-row .who small { font-size: 11px; color: var(--dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tower-row .val { text-align: right; line-height: 1.15; }
+.tower-row .val .v { font-size: 12.5px; font-weight: 600; font-family: var(--mono); letter-spacing: -.02em; }
+.tower-row.leader .val .v { font-family: var(--ui); font-size: 11px; font-weight: 650; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .08em; }
+.tower-row .val .s { display: block; font-size: 10px; font-family: var(--mono); color: #7ddc9a; }
+.tower-row.danger { background: linear-gradient(90deg, rgba(255,43,57,.10), transparent 70%); }
+.tower-row.danger .val .s { color: #ff8189; }
+
+/* Tyres: a ring in the compound's colour, the letter inside, age beside. */
+.tyre { display: flex; align-items: center; gap: 3px; }
+.tyre i {
+  width: 18px; height: 18px; border-radius: 50%; display: grid; place-items: center;
+  font-style: normal; font-size: 9.5px; font-weight: 800; border: 2.5px solid currentColor;
+}
+.tyre em { font-style: normal; font-size: 10px; color: var(--dim); }
+.tyre.SOFT { color: #ff4d55; }
+.tyre.MEDIUM { color: #ffd23f; }
+.tyre.HARD { color: #f2f4f7; }
+.tyre.INTERMEDIATE { color: #43c46e; }
+.tyre.WET { color: #3d8bff; }
+.tower-empty, .tower-note { color: var(--muted); font-size: 12px; padding: 14px 12px; text-align: center; }
+.tower-note { text-align: left; color: var(--dim); padding: 8px 10px 10px; }
+
+/* ---------- transport ---------- */
+#transport {
+  left: calc(14px + var(--tower-w) + 14px); bottom: 14px; right: 14px; height: 54px; border-radius: 18px;
+  display: flex; align-items: center; gap: 14px; padding: 0 12px 0 8px;
+}
+button.play {
+  width: 38px; height: 38px; border-radius: 50%; flex: none;
+  border: 1px solid rgba(196,162,255,.5); color: #fff; font-size: 13px;
+  background: var(--accent);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 8px 22px -6px var(--accent-glow);
+  transition: transform .18s var(--spring), box-shadow .2s ease, filter .2s ease;
+}
+button.play:hover:not(:disabled) { filter: brightness(1.12); box-shadow: inset 0 1px 0 rgba(255,255,255,.5), 0 10px 28px -6px var(--accent-glow); }
+button.play:active:not(:disabled) { transform: scale(.9); }
+button.play:disabled { opacity: .4; cursor: default; }
+.scrubwrap { flex: 1; display: flex; flex-direction: column; gap: 5px; min-width: 80px; }
+.scrubwrap input[type=range] {
+  -webkit-appearance: none; appearance: none; width: 100%; margin: 0;
+  height: 5px; border-radius: 3px; cursor: pointer;
+  background: linear-gradient(90deg, var(--accent) calc(var(--played, 0) * 1%),
+                                     rgba(255,255,255,.14) calc(var(--played, 0) * 1%) 100%);
+}
+.scrubwrap input[type=range]:disabled { cursor: default; opacity: .5; }
+.scrubwrap input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none; width: 14px; height: 14px; border-radius: 50%;
+  background: #fff; box-shadow: 0 0 0 4px rgba(157,107,255,.3), 0 2px 6px rgba(0,0,0,.5);
+  transition: box-shadow .2s ease, scale .2s var(--spring);
+}
+.scrubwrap input[type=range]:hover::-webkit-slider-thumb { scale: 1.2; box-shadow: 0 0 0 6px rgba(157,107,255,.3), 0 2px 6px rgba(0,0,0,.5); }
+.scrubwrap input[type=range]::-moz-range-thumb {
+  width: 13px; height: 13px; border-radius: 50%; border: 0;
+  background: #fff; box-shadow: 0 0 0 4px rgba(255,255,255,.15);
+}
+#flagStrip { height: 3px; border-radius: 2px; background: rgba(255,255,255,.1); }
+.clock { font-family: var(--mono); font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+#speed {
+  height: 30px; border-radius: 9px; padding: 0 8px; font-size: 12px;
+  background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.1);
+}
+#speed option { background: #12161c; }
+
+/* ---------- the probe: telemetry over the selected car ----------
+   Positioned by transform every frame, so it rides with the car without a
+   layout pass. Small: five rings and a name. */
+#probe {
+  position: absolute; left: 0; top: 0; z-index: var(--z-probe);
+  width: 318px; padding: 10px 12px 10px; border-radius: 18px;
+  background: linear-gradient(160deg, rgba(255,255,255,.13), rgba(255,255,255,.02) 60%), rgba(20,16,34,.86);
+  /* Dense enough to read on its own; it moves every frame, so it is not
+     asked to re-blur what is under it every frame as well. */
+  border: 1px solid rgba(255,255,255,.18);
+  box-shadow: 0 22px 44px -14px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.25);
+  pointer-events: auto; will-change: transform;
+  opacity: 0; scale: .6; filter: blur(4px);
+  transition: opacity .18s ease, scale .34s var(--spring), filter .2s ease;
+  transform-origin: var(--tip, 50%) 100%;
+}
+#probe.in { opacity: 1; scale: 1; filter: none; }
+@media (prefers-reduced-motion: reduce) { #probe { scale: 1; filter: none; transition: opacity .15s ease; } }
+#probe.below { transform-origin: var(--tip, 50%) 0; }
+#probe[hidden] { display: none; }
+/* The pointer down to the car. */
+#probe::after {
+  content: ""; position: absolute; left: calc(var(--tip, 50%) - 7px); bottom: -7px;
+  width: 12px; height: 12px; rotate: 45deg;
+  background: rgba(24,19,38,.95); border-right: 1px solid rgba(255,255,255,.18);
+  border-bottom: 1px solid rgba(255,255,255,.18);
+}
+#probe.below::after { bottom: auto; top: -7px; rotate: 225deg; }
+.probe-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.probe-team { width: 4px; height: 16px; border-radius: 2px; background: var(--team); }
+.probe-code { font-size: 14px; font-weight: 800; letter-spacing: -.01em; }
+.probe-name { font-size: 11.5px; color: var(--muted); flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.probe-pos { font-size: 11px; font-weight: 700; color: var(--muted); font-family: var(--mono); }
+.probe-gauges { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.gauge { position: relative; display: grid; justify-items: center; }
+.gauge svg { width: 54px; height: 54px; rotate: -90deg; }
+.gauge circle { fill: none; stroke-width: 4.5; }
+.gauge .track { stroke: rgba(255,255,255,.1); }
+.gauge .fill { stroke-linecap: round; transition: stroke-dashoffset .12s linear; }
+.gauge.speed .fill    { stroke: #fff; }
+.gauge.gear .fill     { stroke: #9fc4ff; }
+.gauge.throttle .fill { stroke: #43d17a; }
+.gauge.brake .fill    { stroke: #ff3b47; }
+.gauge.accel .fill    { stroke: #ffd23f; }
+.gauge.accel.neg .fill { stroke: #ff8a3d; }
+.gauge .read {
+  position: absolute; top: 0; height: 54px; display: grid; place-items: center;
+  font-size: 13px; font-weight: 750; letter-spacing: -.03em; font-family: var(--mono);
+}
+.gauge.gear .read { font-size: 18px; font-family: var(--ui); font-weight: 800; }
+.gauge.brake .read { font-size: 10.5px; }
+.gauge .lbl { font-size: 9.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim); margin-top: 1px; }
+/* The car's timing under the rings: read from the bundle, so always there. */
+.probe-stats {
+  display: flex; gap: 4px; margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid rgba(255,255,255,.08);
+}
+.probe-stats .stat {
+  flex: 1; min-width: 0; display: grid; justify-items: center; gap: 1px;
+  padding: 4px 2px; border-radius: 8px; background: rgba(255,255,255,.05);
+}
+.probe-stats .stat b {
+  font-family: var(--mono); font-size: 11.5px; font-weight: 750; letter-spacing: -.03em;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;
+}
+.probe-stats .stat small {
+  font-size: 9px; letter-spacing: .06em; text-transform: uppercase; color: var(--dim);
+}
+.probe-stats .stat.best b { color: #c9a7ff; }
+.probe-stats .stat.tyre.SOFT b { color: #ff4a55; }
+.probe-stats .stat.tyre.MEDIUM b { color: #ffd23f; }
+.probe-stats .stat.tyre.HARD b { color: #f2f2f2; }
+.probe-stats .stat.tyre.INTERMEDIATE b { color: #43d17a; }
+.probe-stats .stat.tyre.WET b { color: #4aa3ff; }
+.probe-stats .none { flex: 1; text-align: center; font-size: 10.5px; color: var(--dim); }
+.probe-foot { font-size: 10.5px; color: var(--dim); margin-top: 6px; text-align: center; }
+.probe-foot:empty { display: none; }
+
+/* ---------- the island, in the same glass ---------- */
+#island {
+  position: absolute; top: 18px; z-index: var(--z-toast);
+  left: auto; right: 14px; transform: none; top: 21px;
+  /* Top right, clear of the top bar and the standings. */
+  background: rgba(10,12,16,.6);
+  backdrop-filter: blur(20px) saturate(1.6); -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  border-color: rgba(255,255,255,.14);
+}
+#island.idle .isl-idle { color: var(--text); }
+
+/* ---------- narrow screens ----------
+   The tower drops under the circuit and the page scrolls. */
+@media (max-width: 900px) {
+  body { overflow: auto; }
+  #glass { position: relative; inset: auto; margin: 8px; min-height: calc(100vh - 16px);
+    display: flex; flex-direction: column; border-radius: 22px; overflow: visible; }
+  #stage { position: relative; inset: auto; height: 62vh; min-height: 360px; order: 2; }
+  #topbar { position: relative; top: auto; left: auto; margin: 8px; max-width: none; order: 1;
+    flex-wrap: wrap; height: auto; padding: 8px 10px; }
+  .finder { width: 100%; }
+  #transport { position: relative; left: auto; right: auto; bottom: auto; margin: 0 8px 8px; order: 3;
+    height: auto; flex-wrap: wrap; row-gap: 8px; padding: 10px 12px; }
+  #transport .scrubwrap { order: 5; flex-basis: 100%; }
+  #transport .clock { flex: 1; }
+  #tower { position: relative; top: auto; right: auto; bottom: auto; width: auto; margin: 0 8px 8px;
+    max-height: none; order: 4; }
+  #countdown, #building { inset: 0; }
+  #picker { position: fixed; left: 12px; right: 12px; top: 72px; width: auto; max-height: 70vh; }
+  #probe { width: 290px; }
+  .gauge svg { width: 46px; height: 46px; }
+  .gauge .read { height: 46px; }
+}
+
+/* Places changing hands in the standings. */
+.tower-row { position: relative; }
+.tower-row.gained::before, .tower-row.lost::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  animation: placeFlash 1.6s ease-out forwards;
+}
+.tower-row.gained::before { background: linear-gradient(90deg, rgba(53,196,107,.32), transparent 75%); }
+.tower-row.lost::before   { background: linear-gradient(90deg, rgba(255,43,57,.26), transparent 75%); }
+@keyframes placeFlash { from { opacity: 1; } to { opacity: 0; } }
+
+/* Countdown digits roll in from above as they change. The clock is set in
+   the monospace face, so every digit already has the same cell and a
+   narrow 1 never shifts the rest. */
+#cdTime span { display: inline-block; }
+#cdTime span.roll { animation: digitRoll .45s var(--ease-out); }
+@keyframes digitRoll {
+  from { opacity: 0; translate: 0 -.3em; }
+}
+@media (prefers-reduced-motion: reduce) { #cdTime span.roll { animation: none; } }
+
+/* ---------- the prediction, summoned over the map ---------- */
+.predict-btn {
+  display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px 0 10px;
+  border-radius: 10px; font-size: 12.5px; font-weight: 650; color: var(--accent-hi);
+  background: var(--accent-wash); border: 1px solid rgba(157,107,255,.35);
+  transition: background .18s ease, color .18s ease, box-shadow .2s ease, transform .15s var(--spring);
+}
+.predict-btn svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.7;
+  stroke-linecap: round; stroke-linejoin: round; }
+.predict-btn:hover:not(:disabled) { background: rgba(157,107,255,.24); color: #fff; }
+.predict-btn:active:not(:disabled) { transform: scale(.95); }
+.predict-btn[aria-pressed="true"] {
+  color: #fff; border-color: rgba(196,162,255,.6);
+  background: var(--accent);
+  box-shadow: 0 6px 18px -6px var(--accent-glow), inset 0 1px 0 rgba(255,255,255,.3);
+}
+.predict-btn:disabled { opacity: .4; cursor: default; }
+
+#predict {
+  top: 76px; right: 14px; bottom: calc(14px + 54px + 12px); width: 340px; border-radius: 22px;
+  display: flex; flex-direction: column; overflow: hidden; z-index: calc(var(--z-chrome) + 2);
+  background: linear-gradient(160deg, rgba(255,255,255,.12), rgba(255,255,255,.02) 55%), rgba(18,14,30,.84);
+  backdrop-filter: blur(30px) saturate(1.8); -webkit-backdrop-filter: blur(30px) saturate(1.8);
+  opacity: 0; translate: 24px 0; scale: .98; filter: blur(6px);
+  transition: opacity .22s ease, translate .42s var(--ease-out), scale .42s var(--ease-out), filter .25s ease;
+}
+#predict.open { opacity: 1; translate: 0 0; scale: 1; filter: none; }
+#predict[hidden] { display: none; }
+.predict-top { display: flex; align-items: flex-start; justify-content: space-between; padding: 16px 16px 8px; }
+.predict-kind { font-size: 10.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--accent-hi); font-weight: 700; }
+.predict-lap { font-size: 17px; font-weight: 700; letter-spacing: -.02em; margin-top: 2px; }
+.predict-close {
+  width: 28px; height: 28px; border-radius: 50%; border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06); color: var(--muted); font-size: 16px; line-height: 1;
+  transition: background .15s ease, color .15s ease;
+}
+.predict-close:hover { background: rgba(255,255,255,.14); color: #fff; }
+.predict-head, .predict-row {
+  display: grid; grid-template-columns: 24px 4px 1fr 66px 40px; gap: 9px; align-items: center;
+  padding: 0 14px;
+}
+#predict.has-model .predict-head, #predict.has-model .predict-row { grid-template-columns: 24px 4px 1fr 66px 40px 40px; }
+.predict-head { font-size: 9.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
+  font-weight: 700; padding-bottom: 6px; border-bottom: 1px solid var(--line-soft); }
+.predict-head span:nth-child(1), .predict-head span:nth-child(n+4) { text-align: right; }
+#predictRows { flex: 1; overflow: auto; padding: 6px 6px; }
+.predict-row {
+  width: 100%; height: 30px; border: 0; background: transparent; border-radius: 9px; text-align: left;
+  padding: 0 8px; transition: background .15s ease;
+  animation: rowIn .4s var(--ease-out) both; animation-delay: calc(var(--i, 0) * 14ms);
+}
+.predict-row:hover { background: rgba(255,255,255,.07); }
+.predict-row .p { font-weight: 800; font-size: 13px; text-align: right; color: var(--accent-hi); }
+.predict-row .team { width: 4px; height: 16px; border-radius: 2px; background: var(--team); }
+.predict-row .who b { font-size: 13px; font-weight: 750; }
+.predict-row .now, .predict-row .stops, .predict-row .model {
+  text-align: right; font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+.predict-row .now i { font-style: normal; font-size: 10px; margin-left: 2px; }
+.predict-row .now i.up { color: #7ddc9a; }
+.predict-row .now i.down { color: #ff8189; }
+.predict-row .stops em { font-style: normal; color: var(--amber); margin-left: 1px; }
+.predict-row .model { color: var(--dim); }
+.predict-empty { color: var(--muted); padding: 20px; text-align: center; font-size: 12.5px; }
+.predict-foot { padding: 10px 16px 14px; font-size: 11.5px; color: var(--muted); border-top: 1px solid var(--line-soft); }
+.predict-foot:empty { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  #predict { translate: 0 0; scale: 1; filter: none; transition: opacity .15s ease; }
+  .predict-row { animation: none; }
+}
+@media (max-width: 900px) {
+  /* On a phone it rises from the bottom as a sheet, dense enough to read. */
+  #predict { position: fixed; left: 8px; right: 8px; top: auto; bottom: 8px; width: auto; max-height: 72vh;
+    background: linear-gradient(160deg, rgba(255,255,255,.1), rgba(255,255,255,.02) 50%), rgba(18,14,30,.95);
+    translate: 0 40px; }
+  #predict.open { translate: 0 0; }
+}
+
+/* ---------- liquid refraction ----------
+   Where an SVG filter is allowed in backdrop-filter (Chromium), the static
+   panes bend what is behind them instead of only frosting it: the circuit's
+   lines ripple under the top bar, the transport and the prediction. A browser
+   that cannot parse the url() drops this declaration and keeps the plain
+   blur above it. The telemetry card is left plain on purpose -- it moves every
+   frame, and re-bending its backdrop sixty times a second is not worth it. */
+#topbar, #transport, #predict, #tower {
+  backdrop-filter: url(#liquid) saturate(1.7) brightness(1.06);
+}
+/* A brighter rim on the edge that catches the light, so the pane reads as
+   having thickness. */
+#topbar::after, #transport::after, #predict::after, #tower::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
+  padding: 1px;
+  background: linear-gradient(150deg, rgba(255,255,255,.5), rgba(255,255,255,.05) 35%,
+                                      rgba(196,162,255,.08) 70%, rgba(196,162,255,.35));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor; mask-composite: exclude;
+}
+@media (prefers-reduced-transparency: reduce) {
+  #topbar, #transport, #predict, #tower { backdrop-filter: blur(22px); background-color: rgba(18,14,30,.92); }
+}
+
+/* Knocked out in an earlier part of qualifying: classified, set back. */
+.tower-row.out { opacity: .5; }
+.tower-row.out .val .s { color: var(--dim); }
+.predict-btn[hidden] { display: none; }
+
+/* ---------- the Live button ----------
+   Red and pulsing when a session can be watched, amber when one is on but
+   OpenF1 needs an account, quiet otherwise. */
+.live-btn {
+  display: flex; align-items: center; gap: 7px; height: 32px; padding: 0 11px 0 10px; flex: none;
+  border-radius: 10px; font-size: 12px; font-weight: 750; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted); background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1);
+  transition: background .18s ease, color .18s ease, border-color .18s ease, transform .15s var(--spring);
+}
+.live-btn .pulse { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .6; }
+.live-btn:hover:not(:disabled) { color: var(--text); background: rgba(255,255,255,.09); }
+.live-btn:active:not(:disabled) { transform: scale(.95); }
+.live-btn:disabled { opacity: .6; cursor: progress; }
+.live-btn[data-state="live"] {
+  color: #ffd9dc; background: rgba(255,43,57,.16); border-color: rgba(255,43,57,.5);
+}
+.live-btn[data-state="live"] .pulse {
+  background: #ff2b39; opacity: 1; box-shadow: 0 0 0 0 rgba(255,43,57,.6);
+  animation: live-pulse 1.6s ease-out infinite;
+}
+.live-btn[data-state="live"].watching { background: #ff2b39; color: #fff; border-color: #ff5a65; }
+.live-btn[data-state="live"].watching .pulse { background: #fff; }
+.live-btn[data-state="locked"] {
+  color: #ffe2a8; background: rgba(224,160,32,.14); border-color: rgba(224,160,32,.45);
+}
+.live-btn[data-state="locked"] .pulse { background: #e0a020; opacity: 1; }
+.live-hint {
+  position: absolute; top: calc(14px + 48px + 8px); left: calc(14px + var(--tower-w) + 14px);
+  max-width: 380px; padding: 11px 14px; border-radius: 14px; z-index: var(--z-popover);
+  font-size: 12.5px; line-height: 1.45; color: var(--text);
+  background: rgba(18,14,30,.94); border: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 18px 40px -14px rgba(0,0,0,.8);
+  opacity: 0; translate: 0 -4px; transition: opacity .18s ease, translate .25s var(--ease-out);
+}
+.live-hint.in { opacity: 1; translate: 0 0; }
+.live-hint b { display: block; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 3px; }
+.live-hint[data-state="locked"] b { color: #ffcf6e; }
+.live-hint code { font-family: var(--mono); font-size: 11.5px; color: #e7dcff; }
+@media (max-width: 900px) { .live-hint { position: fixed; left: 8px; right: 8px; top: 64px; max-width: none; } }
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(255,43,57,.6); }
+  70% { box-shadow: 0 0 0 7px rgba(255,43,57,0); }
+  100% { box-shadow: 0 0 0 0 rgba(255,43,57,0); }
+}
+@media (prefers-reduced-motion: reduce) { .live-btn .pulse { animation: none !important; } }
+@media (max-width: 720px) { .live-btn .lbl { display: none; } .live-btn { padding: 0 10px; } }
+
