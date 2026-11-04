@@ -236,14 +236,11 @@ function lowerBound(rows, time) {
 
 /** What went wrong with a telemetry request, in words for the card. */
 function reasonOf(error) {
+  // core.api has already turned the API's {detail: {message}} into the text.
   const text = String((error && error.message) || "");
-  try {
-    const body = JSON.parse(text.slice(text.indexOf("{")));
-    const detail = body.detail;
-    if (detail && detail.reason === "locked") return "telemetry paused: live data needs an F1 TV token (see Live)";
-    if (detail && detail.message) return `telemetry unavailable: ${detail.message}`.slice(0, 120);
-  } catch (_) { /* not JSON */ }
-  if (text.startsWith("404")) return "no telemetry for this session";
+  if (error && error.status === 404) return "no telemetry for this session";
+  if (/while a session is live|locked/i.test(text)) return "telemetry paused: live data needs an F1 TV token (see Live)";
+  if (error && error.status && text) return `telemetry unavailable: ${text}`.slice(0, 120);
   return "telemetry unavailable right now";
 }
 

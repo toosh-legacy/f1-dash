@@ -37,7 +37,20 @@ async function detectApi() {
 
 async function api(path, options) {
   const response = await fetch(`${endpoint.api}${path}`, options);
-  if (!response.ok) throw new Error(`${response.status} ${(await response.text()).slice(0, 200)}`);
+  if (!response.ok) {
+    const body = await response.text();
+    // The API's own explanation when it gives one ({detail: {message}}),
+    // so a refusal reads as a sentence rather than a status line.
+    let message = `${response.status} ${body.slice(0, 200)}`;
+    try {
+      const detail = JSON.parse(body).detail;
+      if (detail && detail.message) message = detail.message;
+      else if (typeof detail === "string") message = detail;
+    } catch (_) { /* not JSON: keep the raw text */ }
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
   return response.json();
 }
 

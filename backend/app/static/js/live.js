@@ -155,8 +155,9 @@ function paintButton(status) {
 async function refreshLiveStatus({ check = false } = {}) {
   try {
     liveStatus = await api(check ? "/live/check" : "/live/status", check ? { method: "POST" } : undefined);
-  } catch (_) {
-    liveStatus = null;
+  } catch (error) {
+    // A read-only deployment refuses the check; the plain status still answers.
+    liveStatus = check && error.status === 403 ? await api("/live/status").catch(() => null) : null;
   }
   paintButton(liveStatus);
   return liveStatus;

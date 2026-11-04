@@ -13,7 +13,6 @@ set -euo pipefail
 export MSYS_NO_PATHCONV=1
 
 REGION="${REGION:-us-east-2}"
-BUCKET="${BUCKET:-f1-dash-archive-<account-id>}"
 NAME_TAG="${NAME_TAG:-f1-dash}"
 
 if [ -z "${AWS:-}" ]; then
@@ -21,6 +20,12 @@ if [ -z "${AWS:-}" ]; then
   else AWS="/c/Program Files/Amazon/AWSCLIV2/aws.exe"; fi
 fi
 aws_() { "$AWS" --region "$REGION" "$@"; }
+
+# The bucket is named after the account, so it is worked out from whoever is
+# signed in rather than written into a public repo.
+if [ -z "${BUCKET:-}" ]; then
+  BUCKET="f1-dash-archive-$(aws_ sts get-caller-identity --query Account --output text | tr -d '')"
+fi
 
 cd "$(git rev-parse --show-toplevel)"
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then

@@ -141,6 +141,14 @@ class Settings:
     # Set for an S3-compatible service (R2, MinIO); empty means real AWS.
     S3_ENDPOINT_URL: str = os.getenv("F1_S3_ENDPOINT_URL", "").strip()
 
+    # --- Public demo --------------------------------------------------------
+    # A public deployment is read-only: anyone may watch what is already
+    # built, nobody may build, retrain, promote or delete -- except a request
+    # carrying ADMIN_TOKEN in an ``X-Admin-Token`` header, which is how the
+    # owner still builds replays on the server.
+    PUBLIC_MODE: bool = os.getenv("F1_PUBLIC_MODE", "false").lower() == "true"
+    ADMIN_TOKEN: str = os.getenv("F1_ADMIN_TOKEN", "").strip()
+
     # --- API ----------------------------------------------------------------
     CORS_ORIGINS: list[str] = [
         o.strip() for o in os.getenv("F1_CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()

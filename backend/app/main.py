@@ -9,13 +9,14 @@ stops, who may call it, and where the dashboard is served from.
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import api
@@ -77,6 +78,39 @@ app.add_middleware(
 )
 
 api.register(app)
+
+
+# -- public demo: read-only ----------------------------------------------------
+
+READ_ONLY_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+@app.middleware("http")
+async def read_only_in_public(request: Request, call_next):
+    """Refuse every write on a public deployment, unless the owner's token is on it.
+
+    One rule at the edge rather than a check in each endpoint: a new POST
+    route is closed to the public the day it is written, not when someone
+    remembers to guard it.
+    """
+    if settings.PUBLIC_MODE and request.method not in READ_ONLY_METHODS:
+        supplied = request.headers.get("x-admin-token", "")
+        if not (settings.ADMIN_TOKEN and hmac.compare_digest(supplied, settings.ADMIN_TOKEN)):
+            return JSONResponse(
+                status_code=403,
+                content={"detail": {
+                    "reason": "read_only",
+                    "message": "This is a read-only public demo: races already built can be "
+                               "watched, nothing can be built or changed.",
+                }},
+            )
+    return await call_next(request)
+
+
+@app.get("/app-config", include_in_schema=False)
+def app_config() -> dict:
+    """What the page needs to know about this deployment before it draws."""
+    return {"public": settings.PUBLIC_MODE}
 
 
 # -- dashboard ---------------------------------------------------------------
