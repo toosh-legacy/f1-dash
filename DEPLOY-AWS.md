@@ -898,3 +898,41 @@ Fixes, cheapest first:
 | `/health` says `"status":"degraded"` | A live loop is stale (no poll for 120 s) or has failed 3 or more times in a row. The `live` array in the same JSON has the details; check `docker logs f1-api`. |
 | Docker Desktop won't start | It needs WSL2: run `wsl --install`, reboot, and turn on virtualization in the BIOS if `wsl` complains about it. |
 | `docker push` fails with `no basic auth credentials` / 403 | The ECR login token expires after 12 hours. Run the `aws ecr get-login-password … | docker login …` line again. |
+
+---
+
+## What is deployed (current setup)
+
+A simpler variant of section 2 is live in `us-east-2`: no domain, no Caddy, no
+ECR. The image is built **on the instance** from a `git archive` tarball.
+
+| Piece | Value |
+| --- | --- |
+| URL | `http://3.19.133.243/` (plain HTTP; the security group only admits the owner's IP) |
+| Instance | `f1-dash` (tag `project=f1-dash`), `c7i-flex.large` (2 vCPU, 4 GiB; the account's Free plan blocks t3.medium), AL2023, 30 GB gp3 encrypted, IMDSv2, 2 GB swap |
+| Security group | `f1-dash-web`: inbound TCP 80 from one `/32` only. No SSH: use SSM Session Manager / Run Command |
+| IAM | role + instance profile `f1-dash-ec2`: SSM core, S3 on `prod/*` and `bootstrap/*` of the bucket only, `ssm:GetParameter*` on `/f1-dash/*` |
+| Bucket | `f1-dash-archive-<account-id>`: `prod/` is the app's blob store (`F1_S3_PREFIX=prod`), `bootstrap/` holds `src.tar.gz` and the initial data. `archive/` is the F1 timing backup and is untouched by the app role |
+| Secrets | SSM SecureString `/f1-dash/F1TV_LOGIN_SESSION`; every `/f1-dash/*` parameter becomes an env var on each deploy |
+| Data | SQLite at `/var/cache/f1/f1_dashboard.db` on the root volume, with model artifacts, replays and the FastF1 cache beside it, mounted into the container |
+
+On the instance, `/usr/local/bin/f1-deploy` (written by user-data) reads SSM
+into `/etc/f1-dash/env`, downloads `bootstrap/src.tar.gz`, builds `f1-dash:latest`
+from `backend/`, restores `bootstrap/data/` only if the DB doesn't exist yet,
+removes the old `f1-api` container and starts a new one on port 80. Its log is
+`/var/log/f1-deploy.log`.
+
+**Redeploy** (from Git Bash, ships the committed `HEAD` only):
+
+```bash
+scripts/deploy-aws.sh
+```
+
+**Rotate the F1 TV cookie:** `aws ssm put-parameter --name /f1-dash/F1TV_LOGIN_SESSION --type SecureString --overwrite --value ...`, then redeploy.
+
+**Save money:** `aws ec2 stop-instances --instance-ids <id> --region us-east-2`
+stops compute billing (the volume and the Elastic IP still bill, about $5/month
+together). `start-instances` brings it back on the same IP; the container
+restarts by itself.
+
+**If your IP changes:** revoke the old `/32` rule on `f1-dash-web` and authorize the new one.
