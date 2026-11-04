@@ -23,6 +23,7 @@ from app.config import settings
 from app.db.database import init_db
 from app.live.base import loops
 from app.live.broadcast import broadcaster
+from app.data.f1live import hub as f1live_hub
 from app.live.director import director
 from app.live.feed import feeds
 from app.training import jobs
@@ -42,12 +43,16 @@ async def lifespan(_app: FastAPI):
     # Background threads publish into this loop; capture it once at startup.
     broadcaster.bind_loop(asyncio.get_running_loop())
     log.info("API ready (regime %s, season %s)", settings.CURRENT_REGS_REGIME, settings.CURRENT_SEASON)
+    # F1's live timing, if an F1 TV token is configured: stands in for OpenF1
+    # while a session is on and OpenF1 is closed to unpaid callers.
+    f1live_hub.start()
     if settings.LIVE_AUTOSTART:
         director.start()
     try:
         yield
     finally:
         director.stop()
+        f1live_hub.stop()
         feeds.stop_all()
         loops.stop_all()
         jobs.shutdown()

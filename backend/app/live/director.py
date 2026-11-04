@@ -22,6 +22,7 @@ from typing import Any
 from sqlalchemy import select
 
 from app.config import settings
+from app.data.f1live import hub as f1live_hub
 from app.data.openf1_client import OpenF1Client, OpenF1Error, OpenF1Locked, auth, budget
 from app.data.replay.shared import _parse_date
 from app.db import models as m
@@ -108,7 +109,10 @@ class Director:
             row = self.client().latest_session()
         except OpenF1Locked:
             # A session is on and this server may not read it.
-            self._set("locked", "a session is live, but OpenF1 needs an account to show it")
+            why = ("the F1 TV token has expired: copy the login-session cookie again"
+                   if f1live_hub.configured and (f1live_hub.status()["token"] or {}).get("expired")
+                   else "a session is live, but neither an OpenF1 account nor an F1 TV token can show it")
+            self._set("locked", why)
             return
         except OpenF1Error as exc:
             self._set("error", str(exc))
@@ -198,6 +202,7 @@ class Director:
             "running": bool(self._thread and self._thread.is_alive()),
             "following": following,
             "latest_session": self.latest,
+            "f1tv": f1live_hub.status(),
             "openf1": {
                 **auth.status(),
                 "requests_last_minute": budget.used(),

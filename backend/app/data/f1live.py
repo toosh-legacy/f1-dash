@@ -46,6 +46,7 @@ TOPICS = [
     "SessionInfo",
     "DriverList",
     "TimingData",
+    "TimingAppData",
     "LapCount",
     "TrackStatus",
     "RaceControlMessages",
@@ -157,10 +158,20 @@ def _lap_seconds(text: Any) -> float | None:
 
 
 def _merge(into: dict[str, Any], update: dict[str, Any]) -> None:
-    """Apply one of the feed's partial updates to the state it patches."""
+    """Apply one of the feed's partial updates to the state it patches.
+
+    The feed sends a list whole in a topic's first state, then patches it as
+    a dict keyed by index (``"Stints": {"2": {...}}``), so lists are kept as
+    index-keyed dicts to take those patches.
+    """
     for key, value in update.items():
-        if isinstance(value, dict) and isinstance(into.get(key), dict):
-            _merge(into[key], value)
+        if isinstance(value, list):
+            value = {str(i): item for i, item in enumerate(value)}
+        current = into.get(key)
+        if isinstance(current, list):
+            current = into[key] = {str(i): item for i, item in enumerate(current)}
+        if isinstance(value, dict) and isinstance(current, dict):
+            _merge(current, value)
         else:
             into[key] = value
 
@@ -184,6 +195,7 @@ class LiveHub:
         self.session_info: dict[str, Any] = {}
         self.driver_list: dict[str, Any] = {}
         self.timing: dict[str, Any] = {}
+        self.timing_app: dict[str, Any] = {}
         self.lap_count: dict[str, Any] = {}
         self.track_status: dict[str, Any] = {}
         self.control: list[dict[str, Any]] = []
@@ -305,6 +317,8 @@ class LiveHub:
                 messages = data.get("Messages")
                 rows = messages.values() if isinstance(messages, dict) else (messages or [])
                 self.control.extend(self._control_row(row) for row in rows)
+            elif topic == "TimingAppData":
+                _merge(self.timing_app, data)
             elif topic == "TimingData":
                 self._timing(data, at, initial)
             elif topic == "CarData":
@@ -375,8 +389,8 @@ class LiveHub:
     def _trim(rows: deque[dict[str, Any]], keep_s: float) -> None:
         if not rows:
             return
-        newest = _epoch(rows[-1]["date"]) or time.time()
-        while rows and (_epoch(rows[0]["date"]) or 0) < newest - keep_s:
+        newest = _epoch_param(rows[-1]["date"]) or time.time()
+        while rows and (_epoch_param(rows[0]["date"]) or 0) < newest - keep_s:
             rows.popleft()
 
     @staticmethod
@@ -458,7 +472,72 @@ class LiveHub:
                 return _filter(list(self.positions), params)
             if endpoint == "car_data":
                 return _filter(list(self.car_data), params)
+            if endpoint == "position":
+                return self._position_rows()
+            if endpoint == "intervals":
+                return self._interval_rows()
+            if endpoint == "stints":
+                return self._stint_rows()
         return None
+
+    # The timing tower as OpenF1's append-only feeds, one current row per car:
+    # their readers take the last row per driver as the present value.
+    def _lines(self, state: dict[str, Any]) -> list[tuple[int, dict[str, Any]]]:
+        out = []
+        for number, line in (state.get("Lines") or {}).items():
+            if isinstance(line, dict) and str(number).isdigit():
+                out.append((int(number), line))
+        return out
+
+    def _position_rows(self) -> list[dict[str, Any]]:
+        now = datetime.now(timezone.utc).isoformat()
+        return [
+            {"date": now, "driver_number": number, "position": int(line["Position"])}
+            for number, line in self._lines(self.timing)
+            if str(line.get("Position") or "").isdigit()
+        ]
+
+    def _interval_rows(self) -> list[dict[str, Any]]:
+        now = datetime.now(timezone.utc).isoformat()
+        rows = []
+        for number, line in self._lines(self.timing):
+            ahead = line.get("IntervalToPositionAhead")
+            ahead = ahead.get("Value") if isinstance(ahead, dict) else ahead
+            leader = line.get("GapToLeader")
+            if str(line.get("Position")) == "1":
+                leader, ahead = 0.0, 0.0
+            rows.append({"date": now, "driver_number": number,
+                         "gap_to_leader": _gap(leader), "interval": _gap(ahead)})
+        return rows
+
+    def _stint_rows(self) -> list[dict[str, Any]]:
+        laps_now = {}
+        for number, line in self._lines(self.timing):
+            try:
+                laps_now[number] = int(line.get("NumberOfLaps") or 0)
+            except (TypeError, ValueError):
+                laps_now[number] = 0
+        rows = []
+        for number, line in self._lines(self.timing_app):
+            stints = line.get("Stints") or {}
+            if isinstance(stints, list):
+                stints = {str(i): v for i, v in enumerate(stints)}
+            for index in sorted(stints, key=lambda k: int(k) if str(k).isdigit() else 0):
+                stint = stints[index]
+                if not isinstance(stint, dict) or not str(index).isdigit():
+                    continue
+                age = int(stint.get("TotalLaps") or 0)
+                start_age = int(stint.get("StartLaps") or 0)
+                rows.append({
+                    "driver_number": number,
+                    "stint_number": int(index) + 1,
+                    "compound": (stint.get("Compound") or "").upper() or None,
+                    "tyre_age_at_start": start_age,
+                    # Chosen so OpenF1's arithmetic (age at start + laps since
+                    # the stint began) lands on the feed's own tyre age.
+                    "lap_start": laps_now.get(number, 0) - (age - start_age),
+                })
+        return rows
 
     def _driver_row(self, number: str, driver: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -498,6 +577,15 @@ def _offset(text: Any) -> timedelta:
         return timedelta(0)
 
 
+def _gap(value: Any) -> float | None:
+    """``"+1.234"`` as seconds; ``"1 L"`` / ``"LAP 5"`` (lapped, or the
+    leader's lap count) as no gap, which is what OpenF1 sends there."""
+    try:
+        return float(str(value).lstrip("+")) if value not in (None, "") else None
+    except ValueError:
+        return None
+
+
 def _filter(rows: list[dict[str, Any]], params: dict[str, Any]) -> list[dict[str, Any]]:
     """OpenF1's ``driver_number``, ``date>`` and ``date<`` filters."""
     number = params.get("driver_number")
@@ -508,8 +596,7 @@ def _filter(rows: list[dict[str, Any]], params: dict[str, Any]) -> list[dict[str
         if number is not None and row.get("driver_number") != int(number):
             continue
         if after is not None or before is not None:
-            moment = _epoch(row.get("date")) if str(row.get("date") or "").endswith("+00:00") is False else \
-                datetime.fromisoformat(row["date"]).timestamp()
+            moment = _epoch_param(row.get("date"))
             if moment is None:
                 continue
             if after is not None and moment <= after:

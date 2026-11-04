@@ -239,6 +239,13 @@ class OpenF1Client:
                     continue
                 detail = _detail(response)
                 if not auth.configured:
+                    # Locked while a session runs. F1's own live timing, read
+                    # with an F1 TV token, carries the same session first-hand.
+                    from app.data.f1live import hub
+
+                    answered = hub.answer(endpoint, clean)
+                    if answered is not None:
+                        return answered
                     raise OpenF1Locked(
                         f"GET {endpoint}: {detail or 'unauthorized'} -- set F1_OPENF1_USERNAME "
                         "and F1_OPENF1_PASSWORD in backend/.env to read live sessions"

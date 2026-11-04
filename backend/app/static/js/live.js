@@ -117,7 +117,7 @@ let onLive = null;   // set by search.js: how to open the live session as a choi
 
 const LABELS = {
   live: "Live",
-  locked: "Live · key needed",
+  locked: "Live · login needed",
   idle: "Live",
   error: "Live",
 };
@@ -184,12 +184,14 @@ function showHint(status) {
   const locked = status && status.state === "locked";
   hint.dataset.state = (status && status.state) || "idle";
   hint.innerHTML = "<b></b><span></span>";
-  hint.querySelector("b").textContent = locked ? "OpenF1 account needed" : "Nothing live right now";
+  hint.querySelector("b").textContent = locked ? "F1 TV login needed" : "Nothing live right now";
   const text = hint.querySelector("span");
   if (locked) {
-    text.innerHTML = "A session is on, but OpenF1 only serves live data to paid accounts. Put "
-      + "<code>F1_OPENF1_USERNAME</code> and <code>F1_OPENF1_PASSWORD</code> in "
-      + "<code>backend/.env</code> and restart the API; this button turns red when it is ready.";
+    // The server says why: no token, or one that has run out.
+    text.innerHTML = "A session is on, but this server cannot read it. Copy the "
+      + "<code>login-session</code> cookie from formula1.com into <code>backend/.env</code> as "
+      + "<code>F1TV_LOGIN_SESSION</code> and restart the API.";
+    if (status.message) text.append(" (" + status.message + ")");
   } else {
     text.textContent = describe(status);
   }
