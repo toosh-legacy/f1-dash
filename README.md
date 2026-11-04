@@ -507,11 +507,14 @@ recorded race still look right".
 
 ## Deployment
 
-One EC2 instance on AWS, with **Caddy** in front for HTTPS. Full design, security
-model and runbook: [`DEPLOY-AWS.md`](DEPLOY-AWS.md).
+**Live demo:** <https://f1-dash-backend.vercel.app> (read-only; served when the AWS instance is running).
+
+The page is on **Vercel**. The API runs on one EC2 instance on AWS, with **Caddy** in front
+for HTTPS. Full design, security model and runbook: [`DEPLOY-AWS.md`](DEPLOY-AWS.md).
 
 ```
-browser ──https/wss──▶ Caddy (:443, Let's Encrypt) ──▶ f1-api (FastAPI, one worker)
+browser ──▶ Vercel CDN (static page, API_BASE)
+   └──────https/wss──▶ Caddy (:443, Let's Encrypt) ──▶ f1-api (FastAPI, one worker)
                                                           │  SQLite + caches on EBS
                                                           ├─▶ S3: models, replays (prod/)
                                                           └─▶ SSM: settings and secrets

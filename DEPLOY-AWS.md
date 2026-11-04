@@ -4,8 +4,15 @@ The dashboard deploys to **one EC2 instance in AWS, with Caddy in front of it**.
 This document is the design and the runbook. [`DEPLOY.md`](DEPLOY.md) describes an
 earlier Render + Vercel plan; it is kept for reference only.
 
-Status (November 2026): built, scripted and verified end to end in `us-east-2`,
-then **stopped to save cost**. Section 0.8 says how to bring it back.
+**Live (November 2026):**
+
+| | URL | Host |
+|---|---|---|
+| Dashboard | <https://f1-dash-backend.vercel.app> | Vercel (static page, CDN) |
+| API, and the same dashboard served directly | <https://3-19-133-243.sslip.io> | AWS EC2 behind Caddy, `us-east-2` |
+
+It is a read-only public demo (section 0.4). It runs about $2.25/day, so it is stopped
+again after use (section 0.8).
 
 ## 0. Architecture
 
@@ -46,6 +53,31 @@ would run a second copy of each: OpenF1 would be polled twice, and the
 WebSocket clients would be split between two processes that don't know about
 each other. So the unit of deployment is "exactly one container", and the
 architecture is built around keeping it that way.
+
+### 0.1a The page on Vercel, the API on AWS
+
+The dashboard is static HTML, CSS and ES modules with no build step, so the
+public front door is **Vercel**: `vercel.json` runs `scripts/build-static.js`,
+which copies `backend/app/static` to `public/` and writes `config.js` with
+`window.API_BASE = "https://<host>"` from the `API_BASE` environment variable.
+Vercel serves that from its CDN and rebuilds on every push to `main`.
+
+Everything dynamic is on AWS. The page calls the API across origins, so:
+
+- **The API must be HTTPS.** An HTTPS page can't call an HTTP API (mixed
+  content), which is the reason Caddy and the certificate exist.
+- **CORS:** `F1_CORS_ORIGINS` lists the Vercel origin and the API's own host.
+  The API answers the browser's preflight and sends `Access-Control-Allow-Origin` for them only.
+- **WebSockets** go straight from the page to `wss://<host>`. Origins don't
+  apply to them in the same way, and Caddy passes the upgrade through.
+- **Two front doors, one backend.** The API still serves the same dashboard at
+  `/`, so the AWS URL works on its own if Vercel is unavailable.
+
+```
+ browser ──▶ Vercel CDN: index.html, css, js, config.js (API_BASE)
+    │
+    └──── fetch https / wss ──▶ Caddy on EC2 ──▶ f1-api ──▶ EBS · S3 · SSM
+```
 
 ### 0.2 The pieces and why each is there
 
@@ -1025,19 +1057,23 @@ Fixes, cheapest first:
 
 ## What is deployed (current setup)
 
-The architecture in section 0, as built in `us-east-2` on 2026-11-03:
+Brought up on 2026-11-04 from the architecture in section 0:
 
 | Piece | Value |
 | --- | --- |
-| Instance | `f1-dash` (tag `project=f1-dash`), `c7i-flex.large`, AL2023, 30 GB gp3 encrypted, IMDSv2, 2 GB swap. **Stopped.** |
-| Address | an Elastic IP; the public host is `<ip-with-dashes>.sslip.io` |
-| Security group | `f1-dash-web`. It still admits only the owner's IP on 80: the demo was verified privately and stopped before it was opened to the public (section 0.8, step 2) |
+| Dashboard | Vercel project `f1-dash-backend`, production branch `main`, `API_BASE=https://3-19-133-243.sslip.io` |
+| API host | `https://3-19-133-243.sslip.io`, a Let's Encrypt certificate obtained by Caddy |
+| Instance | `f1-dash`, `c7i-flex.large`, AL2023, 30 GB gp3 encrypted, IMDSv2, 2 GB swap |
+| Security group | `f1-dash-web`: 80 and 443 from anywhere; no other inbound |
+| SSM settings | `F1_PUBLIC_MODE=true`, `F1_LIVE_AUTOSTART=false`, `F1_PUBLIC_HOST`, `F1_CORS_ORIGINS` (the Vercel and API origins), `F1_ADMIN_TOKEN` (SecureString). No F1 TV token on this host |
 | IAM | role and instance profile `f1-dash-ec2`, as in 0.2 |
 | Bucket | `f1-dash-archive-<account-id>`: `prod/`, `bootstrap/`, `archive/` |
-| Deploy | `scripts/deploy-aws.sh` → `deploy/aws/f1-deploy.sh` on the instance |
-| Data | SQLite and caches in `/var/cache/f1`; Caddy's certificates in `/var/cache/caddy` |
+| Replays | the season's races and sprints, built on the server with the admin token |
 
-Verified while it ran: `/health` 200, `/` → 307 to the dashboard, the replay
-list, `/live/status`, and car telemetry served from disk. The Caddy and
-public-mode steps are committed and tested in the unit suite, but they haven't
-been exercised on the instance yet, because it was stopped first.
+Verified from outside:
+
+- `https://<host>/health` 200 with a valid certificate; `http://` redirects to `https://`; `/` → the dashboard.
+- `POST` without the token → 403 `read_only`.
+- Telemetry 200; the CORS preflight answered, with `Access-Control-Allow-Origin` for the Vercel origin.
+- The WebSocket upgrade through Caddy → `101`.
+- Every Vercel asset 200, with `config.js` pointing at the API.
