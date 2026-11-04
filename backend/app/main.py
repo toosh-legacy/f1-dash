@@ -69,14 +69,6 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
 api.register(app)
 
 
@@ -106,6 +98,18 @@ async def read_only_in_public(request: Request, call_next):
             )
     return await call_next(request)
 
+
+# Registered after the read-only guard on purpose: Starlette makes the last
+# middleware added the outermost, so CORS wraps the guard and its 403 still
+# carries Access-Control-Allow-Origin. The other way round, a page on another
+# origin (Vercel) could not read the refusal and saw only "Failed to fetch".
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/app-config", include_in_schema=False)
 def app_config() -> dict:

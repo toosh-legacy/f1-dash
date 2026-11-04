@@ -129,8 +129,8 @@ function describe(status) {
     return `Watch ${following.circuit} ${following.name} live`;
   }
   if (status.state === "locked") {
-    return "A session is on now, but OpenF1 only shows live sessions to paid accounts. "
-      + "Add F1_OPENF1_USERNAME and F1_OPENF1_PASSWORD to backend/.env and restart the API.";
+    return "A session is on now, but this server cannot read it. Copy the formula1.com "
+      + "login-session cookie into backend/.env as F1TV_LOGIN_SESSION and restart the API.";
   }
   if (status.state === "error") return `Live check failed: ${status.message || "unknown"}`;
   const latest = status.latest_session;
