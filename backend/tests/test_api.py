@@ -214,3 +214,14 @@ def test_without_an_admin_token_nobody_writes(client, monkeypatch):
     monkeypatch.setattr(settings, "PUBLIC_MODE", True)
     monkeypatch.setattr(settings, "ADMIN_TOKEN", "")
     assert client.post("/live/check", headers={"x-admin-token": ""}).status_code == 403
+
+
+def test_a_refusal_still_carries_cors_so_another_origin_can_read_it(client, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "PUBLIC_MODE", True)
+    monkeypatch.setattr(settings, "ADMIN_TOKEN", "owner-secret")
+    origin = settings.CORS_ORIGINS[0]
+    refused = client.post("/replays/1/build", headers={"origin": origin})
+    assert refused.status_code == 403
+    assert refused.headers.get("access-control-allow-origin") == origin

@@ -100,7 +100,7 @@ Everything dynamic is on AWS. The page calls the API across origins, so:
 1. The browser resolves `<host>` to the Elastic IP and opens TLS to Caddy on 443.
 2. Caddy terminates TLS and proxies to `f1-api:8000` on the private Docker network.
 3. The read-only middleware (`backend/app/main.py`) lets `GET`/`HEAD`/`OPTIONS` through.
-4. `/` redirects to `/static/dashboard.html`. The page asks `/health` and `/app-config` (which reports `{"public": true}`), then loads the replay list.
+4. `/` redirects to `/static/dashboard.html`. The page asks `/health`, then loads the replay list. (`/app-config` reports `{"public": true}` for any client that wants to know; the page itself learns it from the API's refusal messages.)
 5. A replay bundle is served from the EBS cache, falling back to S3, gzipped. The car card asks `/replays/{key}/telemetry/{car}?t=`, which comes from windows saved to disk when the replay was built (no upstream call).
 6. A live session, when one is being followed, arrives over `wss://<host>/sessions/{id}/live`. Caddy passes the upgrade straight through.
 
@@ -193,7 +193,7 @@ These are on-demand estimates. The account's Free plan refused `t3.medium`, whic
 1. Start the instance: `aws ec2 start-instances --instance-ids <id> --region us-east-2`.
 2. One-time switch to public:
    - Open the firewall: 80 and 443 from `0.0.0.0/0` on `f1-dash-web`, and remove the old single-IP rule.
-   - Settings: `F1_PUBLIC_MODE=true`, `F1_LIVE_AUTOSTART=false`, `F1_PUBLIC_HOST=<ip-with-dashes>.sslip.io` and `F1_CORS_ORIGINS=https://<that host>`.
+   - Settings: `F1_PUBLIC_MODE=true`, `F1_LIVE_AUTOSTART=false`, `F1_PUBLIC_HOST=<ip-with-dashes>.sslip.io` and `F1_CORS_ORIGINS=https://<that host>,https://<your-app>.vercel.app`.
    - Secrets: `F1_ADMIN_TOKEN` as a SecureString, and delete `F1TV_LOGIN_SESSION`.
 3. `scripts/deploy-aws.sh`. It installs Caddy, which fetches the certificate on first start.
 4. Build the season's races on the server: `POST /replays/{key}/build` with the `X-Admin-Token` header.
