@@ -531,8 +531,14 @@ GitHub Actions worker (.github/workflows/worker.yml)
   (`--dry-run` shows row counts, `--replace` copies everything again).
 - **Jobs.** A request that would train or build records a job in the database
   and starts the worker with `GITHUB_DISPATCH_TOKEN`.
+- **Jobs need the worker set up.** Repo secret `DATABASE_URL` (the Neon
+  connection string, unpooled) for `.github/workflows/worker.yml`, and Vercel
+  env `GITHUB_DISPATCH_TOKEN` (fine-grained, this repo, Actions read/write).
 - **Locally, nothing changed.** `uvicorn app.main:app` serves the page and the
   API at <http://localhost:8000/> on SQLite, with live loops and sockets.
+- **Until Neon has data**, the hosted page falls back to the API on your own
+  machine: `/health` reports how many sessions a database holds, and the page
+  prefers an API with data over an empty one.
 
 ## Configuration
 
