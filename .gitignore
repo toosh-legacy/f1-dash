@@ -35,3 +35,9 @@ public/
 # Playwright
 test-results/
 playwright-report/
+.vercel
+.env*.local
+
+# Secret handed to Vercel from disk, never committed
+.github-token
+.neon-url

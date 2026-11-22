@@ -7,7 +7,10 @@
  *
  * The Live button in the top bar says whether any of that is possible right
  * now: following a session, nothing on, or a session on that OpenF1 will not
- * show without an account.
+ * show without an account. *
+ * Where there is no socket -- the API running as a Vercel function, which has
+ * no WebSockets, or a socket that will not open -- the same snapshot is asked
+ * for again every few seconds instead, and drawn through the same path.
  */
 
 import { api, el, endpoint, setStatus } from "./core.js";
@@ -18,6 +21,25 @@ import { notify, worthAnnouncing } from "./notices.js";
 let socket = null;
 let socketFor = null;
 let retryTimer = null;
+let pollTimer = null;
+let pollFor = null;
+
+const POLL_MS = 5000;
+
+/** Whether this API has sockets at all. `/app-config` says (false on a
+ *  function); an API too old to say is assumed to. Asked once. */
+let socketsSupported = null;
+async function supportsSockets() {
+  if (socketsSupported === null) {
+    try {
+      const config = await api("/app-config");
+      socketsSupported = !(config && config.websockets === false);
+    } catch (_) {
+      socketsSupported = true;
+    }
+  }
+  return socketsSupported;
+}
 
 function logLine(message) {
   // The feed panel is gone from the page; the console keeps the log.
@@ -35,7 +57,8 @@ async function watchLive(sessionId) {
     return false;
   }
   openLive(state);
-  connectSocket(sessionId);
+  if (await supportsSockets()) connectSocket(sessionId);
+  else startPolling(sessionId);
   paintButton(liveStatus);
   return true;
 }
@@ -44,21 +67,87 @@ async function watchLive(sessionId) {
  *  one on screen: a dropped socket mid-race should not need a reload. */
 function connectSocket(sessionId) {
   clearTimeout(retryTimer);
+  stopPolling();
   if (socket) { socketFor = null; socket.close(); }
   setStatus("connecting…");
   socketFor = sessionId;
-  const ws = new WebSocket(`${endpoint.ws}/sessions/${sessionId}/live`);
+  let opened = false;
+  let ws;
+  try {
+    ws = new WebSocket(`${endpoint.ws}/sessions/${sessionId}/live`);
+  } catch (_) {
+    socket = null;
+    socketFor = null;
+    startPolling(sessionId);
+    return;
+  }
   socket = ws;
-  ws.addEventListener("open", () => setStatus("live", "live"));
+  // A socket that never opens is not coming: poll instead of retrying it.
+  const fallBack = () => {
+    if (opened || socket !== ws || socketFor !== sessionId) return;
+    socket = null;
+    socketFor = null;
+    startPolling(sessionId);
+  };
+  ws.addEventListener("open", () => { opened = true; setStatus("live", "live"); });
   ws.addEventListener("close", () => {
+    if (!opened) { fallBack(); return; }
     if (socket !== ws || socketFor !== sessionId) return;
     setStatus("reconnecting…");
     retryTimer = setTimeout(() => {
       if (player.live && player.sessionId === sessionId) connectSocket(sessionId);
     }, 3000);
   });
-  ws.addEventListener("error", () => setStatus("socket error", "error"));
+  ws.addEventListener("error", () => {
+    if (!opened) fallBack();
+    else setStatus("socket error", "error");
+  });
   ws.addEventListener("message", (event) => handle(JSON.parse(event.data)));
+}
+
+/** Follow a session by asking for its snapshot every few seconds: what the
+ *  socket would have pushed, pulled. Stops by itself once the session is no
+ *  longer the one on screen. */
+function startPolling(sessionId) {
+  stopPolling();
+  pollFor = sessionId;
+  logLine(`polling session ${sessionId} every ${POLL_MS / 1000} s`);
+  setStatus("live", "live");
+  const tick = async () => {
+    if (pollFor !== sessionId) return;
+    if (!(player.live && player.sessionId === sessionId)) { stopPolling(); return; }
+    try {
+      const state = await api(`/sessions/${sessionId}/live/state`);
+      if (pollFor !== sessionId) return;
+      applyState(state);
+      setStatus("live", "live");
+    } catch (error) {
+      if (pollFor !== sessionId) return;
+      setStatus(error.status === 404 ? "the live feed is not running" : "reconnecting…",
+        error.status === 404 ? "error" : undefined);
+    }
+    if (pollFor === sessionId) pollTimer = setTimeout(tick, POLL_MS);
+  };
+  pollTimer = setTimeout(tick, POLL_MS);
+}
+
+function stopPolling() {
+  clearTimeout(pollTimer);
+  pollTimer = null;
+  pollFor = null;
+}
+
+/** One polled snapshot, fed through the handlers the socket's messages use. */
+function applyState(state) {
+  if (!player.bundle || !player.bundle.live) return;
+  appendLiveFrames(state.frames || []);
+  if (state.track && !player.bundle.track) setLiveTrack(state.track);
+  updateLiveTiming(state);
+  const laps = state.laps || {};
+  if (Object.keys(laps).length) {
+    player.bundle.laps = { ...(player.bundle.laps || {}), ...laps };
+    renderTower(Math.max(player.lap || 0, 1));
+  }
 }
 
 function handle(message) {
@@ -218,6 +307,8 @@ setInterval(() => { if (!document.hidden) refreshLiveStatus(); }, 30000);
 
 export {
   connectSocket,
+  startPolling,
+  stopPolling,
   liveStatus,
   logLine,
   refreshLiveStatus,

@@ -34,8 +34,8 @@ PERIODS = ("Q1", "Q2", "Q3")
 
 def trigger(session_id: int) -> dict[str, Any]:
     """Queue a qualifying retrain. Returns immediately with the job record."""
-    record = submit("retrain_qualifying", session_id, lambda r: run(session_id, r))
-    return record.as_dict()
+    # Recorded by kind; app.training.handlers maps it back to :func:`run`.
+    return submit("retrain_qualifying", {"session_id": session_id}, session_id=session_id)
 
 
 def run(session_id: int, progress: ProgressReporter) -> dict[str, Any]:

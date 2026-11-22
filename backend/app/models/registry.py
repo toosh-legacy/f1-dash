@@ -18,12 +18,14 @@ from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DBSession
+from sqlalchemy.orm import object_session
 
 from app.config import settings
 from app.db import models as m
 from app.models.base import TabularModel, ValidationReport, score_is_better
 from app.models.qualifying_model import QualifyingAdvancementModel, QualifyingTimeModel
 from app.models.race_model import RaceFinishPositionModel, RaceStrategyModel
+from app.storage import files
 
 log = logging.getLogger(__name__)
 
@@ -92,11 +94,13 @@ _loaded: dict[tuple[str, int], TabularModel] = {}
 
 
 def _load_record(record: m.PredictionModel, model_type: str) -> TabularModel:
-    """Load an artifact from disk, once per process.
+    """Load an artifact, once per process.
 
     ``artifact_path`` on the row is where training wrote the file. If the
-    artifact directory has moved since, the file is looked for where the
-    current settings would put it.
+    artifact directory has moved since -- or this is a fresh function instance
+    whose ``/tmp`` has never seen it, or the worker trained it on another
+    machine -- the file is looked for where the current settings would put it,
+    and fetched there from the durable file store if it is not on disk.
     """
     key = (model_type, record.version)
     cached = _loaded.get(key)
@@ -105,10 +109,14 @@ def _load_record(record: m.PredictionModel, model_type: str) -> TabularModel:
     path = Path(record.artifact_path)
     if not path.exists():
         path = artifact_path(model_type, record.version)
-        if not path.exists():
+        store_key = artifact_key(model_type, record.version)
+        # The record's own session, so a blob written in a transaction that has
+        # not committed yet is still visible to the code that wrote it.
+        if not files.materialize(store_key, path, db=object_session(record)):
             raise FileNotFoundError(
                 f"artifact for {model_type} v{record.version} is missing: "
-                f"looked at {record.artifact_path} and {path}"
+                f"looked at {record.artifact_path}, {path}, and the file store "
+                f"under {store_key!r}"
             )
     model = MODEL_CLASSES[model_type].load(path)
     _loaded[key] = model
@@ -162,6 +170,11 @@ def artifact_path(model_type: str, version: int) -> Path:
     return settings.MODEL_ARTIFACT_DIR / f"{model_type}_v{version}.joblib"
 
 
+def artifact_key(model_type: str, version: int) -> str:
+    """Where an artifact lives in the durable file store (``app.storage.files``)."""
+    return f"models/{model_type}_v{version}.joblib"
+
+
 def register(
     db: DBSession,
     model_type: str,
@@ -181,6 +194,10 @@ def register(
     version = next_version(db, model_type)
     path = artifact_path(model_type, version)
     model.save(path)
+    # The disk copy is a cache: on a function it is gone with the instance, and
+    # the worker that trained this is not the machine that will serve it. The
+    # blob joins this transaction, so it exists exactly when the row does.
+    files.publish(path, artifact_key(model_type, version), db=db)
 
     record = m.PredictionModel(
         model_type=model_type,

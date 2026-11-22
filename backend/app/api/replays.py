@@ -21,7 +21,7 @@ from app.data.openf1_client import OpenF1Locked
 from app.db import projection_store
 from app.db import replay_store
 from app.db import session_index
-from app.db.database import get_db, session_scope
+from app.db.database import get_db
 from app.models import calibration
 from app.models import replay_predictor
 from app.training import jobs
@@ -120,49 +120,15 @@ def build_replay(session_key: int, force: bool = False) -> dict[str, Any]:
 
     Fetching a session's position feed is one request per car over tens of
     thousands of samples, so it goes to the same background pool retraining
-    uses and the caller gets a job record straight back.
+    uses and the caller gets a job record straight back. Asking again while
+    a build is queued or running returns that build's job.
     """
     if not force and ensure_local(session_key):
-        return jobs.jobs.create("replay", None).as_dict() | {
-            "status": "succeeded",
-            "result": {"session_key": session_key, "cached": True},
-        }
-
-    def run(progress: jobs.ProgressReporter) -> dict[str, Any]:
-        bundle = replay.build_bundle(
-            session_key,
-            force=force,
-            progress=lambda stage, detail=None: progress(stage, detail),
+        return jobs.record_done(
+            "replay", {"session_key": session_key}, {"session_key": session_key, "cached": True}
         )
-        # Publishing is the point: one person's build is everyone's replay.
-        with session_scope() as db:
-            size = replay_store.publish(db, session_key, bundle)
-        progress("published", {"session_key": session_key, "bytes": size})
-        # Keep every car's telemetry with the replay, so the probe never waits
-        # on OpenF1 -- or finds it locked while another session is live.
-        try:
-            telemetry.prefetch_session(
-                session_key, bundle, report=lambda stage, detail=None: progress(stage, detail)
-            )
-        except Exception as error:  # noqa: BLE001 - the replay plays without it
-            log.warning("prefetching telemetry for %s failed: %s", session_key, error)
-        # The first race built at a circuit maps its surroundings. Best
-        # effort: a replay without a map still plays.
-        try:
-            from app.data.circuits import build as circuit_builder
-
-            if circuit_builder.ensure_map(bundle):
-                progress("mapped", {"circuit": bundle["session"].get("circuit")})
-        except Exception as error:  # noqa: BLE001 - never fail a build over its map
-            log.warning("mapping the circuit of %s failed: %s", session_key, error)
-        return {
-            "session_key": session_key,
-            "frames": len(bundle["frames"]),
-            "total_laps": bundle["total_laps"],
-            "bytes": size,
-        }
-
-    return jobs.submit("replay", None, run).as_dict()
+    # The work itself is app.training.handlers.replay_build.
+    return jobs.submit("replay", {"session_key": session_key, "force": force})
 
 
 @router.get("/replays/{session_key}", tags=["replays"])
@@ -206,16 +172,7 @@ def prefetch_replay_telemetry(session_key: int) -> dict[str, Any]:
     cars already on disk are skipped.
     """
     require_built_replay(session_key)
-
-    def run(progress: jobs.ProgressReporter) -> dict[str, Any]:
-        written = telemetry.prefetch_session(
-            session_key,
-            replay.load_bundle(session_key) or {},
-            report=lambda stage, detail=None: progress(stage, detail),
-        )
-        return {"session_key": session_key, "cars": len(written)}
-
-    return jobs.submit("telemetry", None, run).as_dict()
+    return jobs.submit("telemetry", {"session_key": session_key})
 
 
 @router.get("/replays/{session_key}/telemetry/{number}", tags=["replays"])
@@ -337,10 +294,7 @@ def evaluate_replay(session_key: int, model_id: int | None = None) -> dict[str, 
             detail=f"replay for session {session_key} is not built yet; build it first",
         )
 
-    def run(progress: jobs.ProgressReporter) -> dict[str, Any]:
-        return replay_predictor.run(session_key, progress, model_id=model_id)
-
-    return jobs.submit("predict", None, run).as_dict()
+    return jobs.submit("predict", {"session_key": session_key, "model_id": model_id})
 
 
 @router.get(
@@ -358,10 +312,6 @@ def replay_prediction_coverage(
     }
 
 
-#: Circuits being mapped right now, so asking twice does not map twice.
-_mapping: set[str] = set()
-
-
 @router.get("/circuits/{circuit}/map", tags=["replays"])
 def circuit_map(circuit: str, response: Response, db: DBSession = Depends(get_db)) -> Any:
     """What is around a circuit -- grass, gravel, stands, buildings, the pit
@@ -373,7 +323,6 @@ def circuit_map(circuit: str, response: Response, db: DBSession = Depends(get_db
     "mapping"}`` and the caller asks again shortly.
     """
     from app.data import circuits
-    from app.data.circuits import build as circuit_builder
 
     packed = circuits.gzipped(circuit)
     if packed is not None:
@@ -381,22 +330,13 @@ def circuit_map(circuit: str, response: Response, db: DBSession = Depends(get_db
             "Content-Encoding": "gzip", "Cache-Control": "public, max-age=86400", "Vary": "Accept-Encoding",
         })
 
-    key = circuit.strip().lower()
-    if key not in _mapping:
-        found = _bundle_at(circuit, db)
-        if found is None:
+    # One mapping job per circuit at a time: the job table dedupes it, and
+    # checking first spares looking for a bundle while one is under way.
+    params = {"circuit": circuit.strip().lower()}
+    if jobs.active("circuit_map", params) is None:
+        if _bundle_at(circuit, db) is None:
             raise HTTPException(status_code=404, detail=f"no map of the surroundings at {circuit}")
-        _mapping.add(key)
-
-        def run(progress: jobs.ProgressReporter) -> dict[str, Any]:
-            try:
-                progress("mapping", {"circuit": circuit})
-                path = circuit_builder.ensure_map(found)
-                return {"circuit": circuit, "map": path.name if path else None}
-            finally:
-                _mapping.discard(key)
-
-        jobs.submit("circuit_map", None, run)
+        jobs.submit("circuit_map", params)
     response.status_code = 202
     response.headers["Cache-Control"] = "no-store"
     return {"status": "mapping", "circuit": circuit}

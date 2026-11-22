@@ -507,35 +507,38 @@ recorded race still look right".
 
 ## Where it runs
 
-Everything runs on your own machine. The one hosted piece is a copy of the
-page on **Vercel** — <https://f1-dash-backend.vercel.app> — and that copy
-talks to the API on *your* localhost, from your browser:
+The whole app runs on **Vercel**, with its data in **Neon Postgres**. Anything
+too heavy for a function runs on a **GitHub Actions** worker:
 
 ```
-your browser ──▶ Vercel (static page: HTML, CSS, ES modules — no build step)
-      │
-      └──http/ws──▶ http://localhost:8000  (FastAPI on your machine)
-                      ├─ SQLite              backend/f1_dashboard.db
-                      ├─ models, replays     backend/model_artifacts/, backend/replays/
-                      └─▶ OpenF1 · FastF1 · F1 live timing
+browser ──▶ Vercel
+             ├─ /        static page from public/ (CDN; scripts/build-static.js)
+             └─ /api/*   FastAPI as one Python function (api/index.py, 60 s max)
+                           └─▶ Neon Postgres  tables + durable files (models, telemetry)
+GitHub Actions worker (.github/workflows/worker.yml)
+             └─ retraining, replay builds  ──▶ same Neon database
 ```
 
-- **Open the page, then start the API, in either order.** The page looks for the
-  API on its own origin, then on `localhost:8000`. If neither answers it shows
-  the command to start one and connects by itself the moment it does.
-- **Nothing is exposed.** The API is never on the public internet. It allows the
-  Vercel origin by CORS and answers Chrome's Private Network Access preflight
-  for that origin only, so other sites you have open cannot drive it. Chrome
-  may ask once to let the page reach devices on your local network: allow it.
-  Safari blocks an `https` page from calling `http://localhost`; use
-  <http://localhost:8000/> there instead.
-- **Vercel settings.** `vercel.json` runs `scripts/build-static.js`, which copies
-  `backend/app/static/` into `public/`. No environment variables are needed;
-  `DASHBOARD_API_URL` points the build at a different API if you ever want one.
-  An old `API_BASE` variable left in the project settings is ignored.
-
-The same page is served locally too, at <http://localhost:8000/> by FastAPI or
-<http://localhost:3000/> by `npm start`.
+- **The function** is `backend/app` under the `/api` prefix. On Vercel
+  (`VERCEL` set) it serves no page, starts no live loops and opens no
+  WebSockets; caches go to `/tmp/f1`. The live view then polls
+  `/api/sessions/{id}/live/state` every 5 s instead of using a socket.
+  Dependencies are the root `requirements.txt` (~395 MB unpacked on Linux,
+  under Vercel's 500 MB); Python comes from `.python-version`.
+- **The database.** Attaching Neon to the project injects `DATABASE_URL`.
+  Tables are created on the first cold start. To move a local database across:
+  `backend/.venv/Scripts/python scripts/migrate_to_postgres.py --to "$DATABASE_URL" --push-files`
+  (`--dry-run` shows row counts, `--replace` copies everything again).
+- **Jobs.** A request that would train or build records a job in the database
+  and starts the worker with `GITHUB_DISPATCH_TOKEN`.
+- **Jobs need the worker set up.** Repo secret `DATABASE_URL` (the Neon
+  connection string, unpooled) for `.github/workflows/worker.yml`, and Vercel
+  env `GITHUB_DISPATCH_TOKEN` (fine-grained, this repo, Actions read/write).
+- **Locally, nothing changed.** `uvicorn app.main:app` serves the page and the
+  API at <http://localhost:8000/> on SQLite, with live loops and sockets.
+- **Until Neon has data**, the hosted page falls back to the API on your own
+  machine: `/health` reports how many sessions a database holds, and the page
+  prefers an API with data over an empty one.
 
 ## Configuration
 

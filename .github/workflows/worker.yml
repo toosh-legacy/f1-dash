@@ -1,0 +1,75 @@
+# The background worker for the API on Vercel.
+#
+# A Vercel function cannot keep working after it answers, so the API records
+# a job in the database (table `jobs`) and dispatches this workflow with its
+# id. The run executes the job against the same database and writes progress
+# and the outcome back to the row, which is what GET /jobs/{id} reports.
+#
+# Dispatched without a job id (from the Actions tab), it drains every queued
+# job instead -- the way to pick up jobs whose dispatch was lost.
+#
+# Secrets: DATABASE_URL (required, the Neon connection string), and optionally
+# F1_OPENF1_USERNAME / F1_OPENF1_PASSWORD / F1TV_LOGIN_SESSION.
+name: worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: "Job to run (leave empty to run every queued job)"
+        required: false
+        type: string
+        default: ""
+
+concurrency:
+  # One run per job; a re-dispatch of the same job waits rather than racing it.
+  group: worker-${{ inputs.job_id || 'drain' }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      F1_DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      F1_LIVE_AUTOSTART: "false"
+      # This run *is* the worker: execute here rather than dispatch again.
+      F1_JOB_RUNNER: "thread"
+      F1_OPENF1_USERNAME: ${{ secrets.F1_OPENF1_USERNAME }}
+      F1_OPENF1_PASSWORD: ${{ secrets.F1_OPENF1_PASSWORD }}
+      F1TV_LOGIN_SESSION: ${{ secrets.F1TV_LOGIN_SESSION }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # FastF1's HTTP cache: sessions already downloaded are not downloaded
+      # again. A new key each run so the cache grows; restore the latest.
+      - uses: actions/cache@v4
+        with:
+          path: backend/.fastf1_cache
+          key: fastf1-${{ github.run_id }}
+          restore-keys: fastf1-
+
+      - name: Run job ${{ inputs.job_id }}
+        if: ${{ inputs.job_id != '' }}
+        env:
+          JOB_ID: ${{ inputs.job_id }}
+        run: python -m app.cli run-job "$JOB_ID"
+
+      - name: Run every queued job
+        if: ${{ inputs.job_id == '' }}
+        run: python -m app.cli work

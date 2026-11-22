@@ -45,9 +45,11 @@ async def lifespan(_app: FastAPI):
     broadcaster.bind_loop(asyncio.get_running_loop())
     log.info("API ready (regime %s, season %s)", settings.CURRENT_REGS_REGIME, settings.CURRENT_SEASON)
     # F1's live timing, if an F1 TV token is configured: stands in for OpenF1
-    # while a session is on and OpenF1 is closed to unpaid callers.
-    f1live_hub.start()
-    if settings.LIVE_AUTOSTART:
+    # while a session is on and OpenF1 is closed to unpaid callers. Not on a
+    # function: nothing stays up between requests to hold its connection.
+    if not settings.SERVERLESS:
+        f1live_hub.start()
+    if settings.LIVE_AUTOSTART and not settings.SERVERLESS:
         director.start()
     try:
         yield
@@ -134,13 +136,19 @@ async def allow_private_network(request: Request, call_next):
 
 @app.get("/app-config", include_in_schema=False)
 def app_config() -> dict:
-    """What the page needs to know about this deployment before it draws."""
-    return {"public": settings.PUBLIC_MODE}
+    """What the page needs to know about this deployment before it draws.
+
+    ``websockets`` is false on a function (Vercel has none): the live view then
+    polls ``/sessions/{id}/live/state`` instead of opening a socket.
+    """
+    return {"public": settings.PUBLIC_MODE, "websockets": not settings.SERVERLESS}
 
 
 # -- dashboard ---------------------------------------------------------------
 
-if STATIC_DIR.exists():
+# Not on a function: there the page is served by Vercel's CDN from public/,
+# and only /api reaches Python.
+if STATIC_DIR.exists() and not settings.SERVERLESS:
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     @app.get("/", include_in_schema=False)

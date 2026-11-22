@@ -14,6 +14,11 @@ Times are seconds on the replay's own clock. That clock starts at the
 scheduled session start (see ``build._session_window``); a bundle built after
 this module existed records the instant explicitly as ``t0``, and an older one
 falls back to the schedule, which is the same instant.
+
+A kept window is a file under ``REPLAY_DIR`` *and* a row in the durable file
+store (:mod:`app.storage.files`), under the same relative path as its key. On a
+function the file is gone with the instance; the row is what saves asking
+OpenF1 again -- which, while any session is live, a free caller cannot do.
 """
 from __future__ import annotations
 
@@ -29,6 +34,7 @@ from typing import Any
 from app.config import settings
 from app.data.openf1_client import OpenF1Client
 from app.data.replay.shared import _parse_date
+from app.storage import files
 
 log = logging.getLogger(__name__)
 
@@ -112,13 +118,27 @@ def _remember(key: tuple[int, int, int], rows: list[list[float]]) -> None:
             _cache.popitem(last=False)
 
 
-def _path(key: tuple[int, int, int]):
+def _store_key(key: tuple[int, int, int]) -> str:
+    """The window's key in the file store: its path below ``REPLAY_DIR``."""
     session_key, number, index = key
-    return settings.REPLAY_DIR / "telemetry" / CACHE_VERSION / str(session_key) / str(number) / f"{index}.json.gz"
+    return f"telemetry/{CACHE_VERSION}/{session_key}/{number}/{index}.json.gz"
+
+
+def _path(key: tuple[int, int, int]):
+    return settings.REPLAY_DIR / _store_key(key)
+
+
+def _kept(key: tuple[int, int, int]) -> bool:
+    """Whether a window is kept anywhere, without downloading it."""
+    return files.exists(_store_key(key), _path(key))
 
 
 def _read(key: tuple[int, int, int]) -> list[list[float]] | None:
     path = _path(key)
+    # The listing check first: most windows asked for on a fresh instance were
+    # never stored, and a cached listing answers that without a query apiece.
+    if not path.exists() and _kept(key):
+        files.materialize(_store_key(key), path)
     try:
         with gzip.open(path, "rt", encoding="utf-8") as handle:
             return json.load(handle)
@@ -129,16 +149,34 @@ def _read(key: tuple[int, int, int]) -> list[list[float]] | None:
         return None
 
 
-def _write(key: tuple[int, int, int], rows: list[list[float]]) -> None:
+def _encode(rows: list[list[float]]) -> bytes:
+    return gzip.compress(json.dumps(rows, separators=(",", ":")).encode("utf-8"), mtime=0)
+
+
+def _write(
+    key: tuple[int, int, int], rows: list[list[float]], *, publish: bool = True
+) -> bytes | None:
+    """Keep a window on disk and, unless ``publish`` is off, in the file store.
+
+    Returns the encoded bytes, so a bulk caller can publish many in one go.
+    Failing to keep a window is only ever slower, never wrong, so neither a
+    disk nor a database error is raised.
+    """
     path = _path(key)
+    data = _encode(rows)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(path.name + ".tmp")
-        with gzip.open(temporary, "wt", encoding="utf-8") as handle:
-            json.dump(rows, handle, separators=(",", ":"))
+        temporary.write_bytes(data)
         temporary.replace(path)
     except OSError as exc:  # a cache that cannot be written is only slower
         log.warning("could not keep telemetry window %s: %s", path, exc)
+    if publish:
+        try:
+            files.publish_bytes(_store_key(key), data)
+        except Exception as exc:  # noqa: BLE001 - see above
+            log.warning("could not store telemetry window %s: %s", _store_key(key), exc)
+    return data
 
 
 def _compact(rows: list[dict[str, Any]], t0: datetime) -> list[list[float | None]]:
@@ -227,7 +265,7 @@ def prefetch_session(
     drivers = bundle.get("drivers") or []
     for done, driver in enumerate(drivers, start=1):
         number = int(driver["number"])
-        if all(_path((session_key, number, i)).exists() for i in range(last + 1)):
+        if all(_kept((session_key, number, i)) for i in range(last + 1)):
             continue
         try:
             rows = client.car_data(
@@ -243,8 +281,17 @@ def prefetch_session(
             index = window_index(row[0])
             if index in by_window:
                 by_window[index].append(row)
-        for index, chunk in by_window.items():
-            _write((session_key, number, index), chunk)
+        # One transaction per car rather than one per window: sixty-odd round
+        # trips to a remote database would cost more than the fetch did.
+        batch = [
+            (_store_key((session_key, number, index)),
+             _write((session_key, number, index), chunk, publish=False))
+            for index, chunk in by_window.items()
+        ]
+        try:
+            files.publish_many(batch)
+        except Exception as exc:  # noqa: BLE001 - the disk copy still stands
+            log.warning("could not store telemetry for car %s of %s: %s", number, session_key, exc)
         written[number] = len(by_window)
         report("telemetry", {"car": number, "done": done, "of": len(drivers)})
     return written

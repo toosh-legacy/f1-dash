@@ -13,7 +13,7 @@ from typing import Any
 from app.config import settings
 from app.data.openf1_client import OpenF1Client
 from app.data.replay.shared import _parse_date
-from app.data.replay.store import bundle_path
+from app.data.replay.store import bundle_path, is_cached
 
 
 # --------------------------------------------------------------------------
@@ -102,7 +102,7 @@ def catalogue(
                 location=row.get("location"),
                 date_start=row.get("date_start"),
                 year=row.get("year") or year,
-                cached=path.exists(),
+                cached=is_cached(key),
                 size_bytes=path.stat().st_size if path.exists() else None,
             )
         )

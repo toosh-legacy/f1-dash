@@ -28,24 +28,28 @@ export function setEndpoints(base) {
 const LOCAL_API = "http://localhost:8000";
 const RETRY_MS = 2500;
 
+/** The API's /health, or null if nothing usable answers at `base`. */
 async function answers(base) {
   try {
     const response = await fetch(`${base}/health`, { cache: "no-store" });
-    if (!response.ok) return false;
+    if (!response.ok) return null;
     const body = await response.json();
-    return body && typeof body === "object";
+    return body && typeof body === "object" ? body : null;
   } catch (_) {
-    return false;
+    return null;
   }
 }
 
 /** Find the API, waiting for it to start if it is not up yet.
  *
  * `?api=` or `window.API_BASE` names it outright. Otherwise the same origin
- * is tried first (FastAPI serving the page, or the Node dev proxy at /api),
- * then the API on localhost -- which is how the copy hosted on Vercel finds
- * the API running on the viewer's machine. Nothing answering is not an
- * error: `onWaiting` is told, and the search repeats until one does.
+ * is tried first (the API hosted beside the page on Vercel, FastAPI serving
+ * the page, or the Node dev proxy at /api), then the API on localhost.
+ *
+ * An API whose database has no sessions yet (a fresh hosted database) is
+ * kept only as a fallback: if the API on this machine answers with data, the
+ * page uses that instead. Nothing answering is not an error: `onWaiting` is
+ * told, and the search repeats until one does.
  */
 async function detectApi({ onWaiting } = {}) {
   const named = (endpoint.api || "").replace(/\/$/, "");
@@ -53,9 +57,14 @@ async function detectApi({ onWaiting } = {}) {
     ? [named]
     : [...new Set([location.origin + "/api", location.origin, LOCAL_API])];
   for (;;) {
+    let empty = null;
     for (const base of candidates) {
-      if (await answers(base)) return base;
+      const health = await answers(base);
+      if (!health) continue;
+      if (named || health.sessions !== 0) return base;
+      empty = empty || base;
     }
+    if (empty) return empty;
     if (onWaiting) onWaiting(candidates[candidates.length - 1]);
     await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
   }

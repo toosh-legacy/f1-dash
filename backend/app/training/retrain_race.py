@@ -35,8 +35,8 @@ BACKFILL_LAP_STEP = 5
 
 
 def trigger(session_id: int) -> dict[str, Any]:
-    record = submit("retrain_race", session_id, lambda r: run(session_id, r))
-    return record.as_dict()
+    # Recorded by kind; app.training.handlers maps it back to :func:`run`.
+    return submit("retrain_race", {"session_id": session_id}, session_id=session_id)
 
 
 def run(session_id: int, progress: ProgressReporter) -> dict[str, Any]:

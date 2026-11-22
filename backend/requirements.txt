@@ -6,6 +6,8 @@ websockets==14.1
 
 # --- persistence ---
 SQLAlchemy==2.0.36
+# Postgres (Neon) in the hosted deployment.
+psycopg[binary]==3.2.3
 
 # --- data sources ---
 fastf1==3.4.4

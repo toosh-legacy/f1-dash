@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session as DBSession
 
 from app import schemas
@@ -52,6 +52,7 @@ def health(db: DBSession = Depends(get_db)) -> schemas.HealthOut:
         active_models=active,
         live_loops=len(statuses),
         pending_jobs=jobs.pending_count(),
+        sessions=db.scalar(select(func.count()).select_from(m.Session)) or 0,
         live=statuses,
         jobs=jobs.stats(),
         caches={
