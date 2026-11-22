@@ -4,10 +4,16 @@
     python -m app.cli backfill --year 2026
     python -m app.cli status
     python -m app.cli promote --model-id 7
+    python -m app.cli run-job 3f9a0c1d2e4b
+    python -m app.cli work
 
 ``backfill`` walks the season in chronological order and runs the same
 retraining pipeline the API queues, so the corpus is rebuilt exactly the way it
 accumulates during a live season -- each session trained on what came before it.
+
+``run-job`` and ``work`` are the background worker: the GitHub Actions workflow
+(``.github/workflows/worker.yml``) runs one with the job id the API dispatched,
+or drains whatever is queued.
 """
 from __future__ import annotations
 
@@ -23,6 +29,7 @@ from app.db import models as m
 from app.db.database import init_db, session_scope
 from app.models import registry
 from app.training import retrain_qualifying, retrain_race
+from app.training import jobs
 from app.training.jobs import JobRecord, ProgressReporter
 
 log = logging.getLogger("app.cli")
@@ -118,6 +125,46 @@ def cmd_promote(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_outcome(record: JobRecord) -> None:
+    if record.status == "succeeded":
+        print(f"job {record.id} ({record.kind}) succeeded: {record.result}")
+    else:
+        print(f"job {record.id} ({record.kind}) {record.status}: {record.error}")
+
+
+def cmd_run_job(args: argparse.Namespace) -> int:
+    """Run one recorded job here, synchronously, and record how it went."""
+    init_db()
+    existing = jobs.get(args.job_id)
+    if existing is None:
+        print(f"no job {args.job_id}")
+        return 2
+    record = jobs.execute(args.job_id, force=args.force)
+    if record is None:
+        print(f"job {args.job_id} is {existing.status}, not queued; --force runs it anyway")
+        return 0 if existing.status == "succeeded" else 1
+    _print_outcome(record)
+    return 0 if record.status == "succeeded" else 1
+
+
+def cmd_work(args: argparse.Namespace) -> int:
+    """Run queued jobs, oldest first, until none are left (or ``--limit``)."""
+    init_db()
+    ran = failed = 0
+    while args.limit is None or ran < args.limit:
+        job_id = jobs.next_queued()
+        if job_id is None:
+            break
+        record = jobs.execute(job_id)
+        if record is None:   # another worker claimed it first
+            continue
+        ran += 1
+        failed += record.status != "succeeded"
+        _print_outcome(record)
+    print(f"worked through {ran} job(s), {failed} failed")
+    return 1 if failed else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="app.cli", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -137,6 +184,16 @@ def build_parser() -> argparse.ArgumentParser:
     promote_parser = sub.add_parser("promote", help="activate a model version")
     promote_parser.add_argument("--model-id", type=int, required=True)
     promote_parser.set_defaults(func=cmd_promote)
+
+    run_job_parser = sub.add_parser("run-job", help="run one queued background job here")
+    run_job_parser.add_argument("job_id")
+    run_job_parser.add_argument("--force", action="store_true",
+                                help="run it even if it is not queued (re-run a failed job)")
+    run_job_parser.set_defaults(func=cmd_run_job)
+
+    work_parser = sub.add_parser("work", help="run queued background jobs until none are left")
+    work_parser.add_argument("--limit", type=int, default=None, help="stop after N jobs")
+    work_parser.set_defaults(func=cmd_work)
 
     return parser
 

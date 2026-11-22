@@ -75,6 +75,7 @@ def init_db() -> None:
     """Create all tables. Idempotent."""
     from app.db import models  # noqa: F401  (register mappers before create_all)
     from app.db import stored_file  # noqa: F401  (the durable file store's table)
+    from app.db import job_record  # noqa: F401  (background jobs, shared with the worker)
 
     Base.metadata.create_all(bind=engine)
     log.info("database ready at %s", settings.DATABASE_URL)

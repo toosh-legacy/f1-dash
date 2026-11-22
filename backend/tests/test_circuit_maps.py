@@ -111,11 +111,20 @@ def test_an_unmapped_circuit_with_a_replay_is_mapped_on_demand(monkeypatch):
     built = {}
     monkeypatch.setattr(replays_api, "_bundle_at", lambda circuit, db: {"session": {"circuit": circuit}})
     monkeypatch.setattr(circuit_builder, "ensure_map", lambda bundle: built.update(b=bundle))
-    # Run the job inline: the shared pool may already be shut down by now.
-    monkeypatch.setattr(replays_api.jobs, "submit",
-                        lambda kind, sid, fn: fn(jobs.ProgressReporter(jobs.JobRecord(id="t", kind=kind, session_id=None))))
+    # Run the job inline, through its handler, as a worker would.
+    from app.training import handlers
+
+    submitted = []
+
+    def run_inline(kind, params, session_id=None):
+        submitted.append(kind)
+        reporter = jobs.ProgressReporter(jobs.JobRecord(id="t", kind=kind, session_id=None))
+        return {"result": handlers.HANDLERS[kind](params, reporter)}
+
+    monkeypatch.setattr(replays_api.jobs, "submit", run_inline)
+    monkeypatch.setattr(replays_api.jobs, "active", lambda kind, params: None)
     client = TestClient(app)
     answer = client.get("/circuits/Atlantis/map")
     assert answer.status_code == 202 and answer.json()["status"] == "mapping"
-    assert built["b"]["session"]["circuit"] == "Atlantis"
-    assert not replays_api._mapping   # free to try again if it failed
+    assert submitted == ["circuit_map"]
+    assert built["b"]["session"]["circuit"] == "atlantis"
