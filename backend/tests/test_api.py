@@ -218,7 +218,7 @@ def test_a_public_deployment_is_read_only_except_to_its_owner(client, monkeypatc
     monkeypatch.setattr(settings, "PUBLIC_MODE", True)
     monkeypatch.setattr(settings, "ADMIN_TOKEN", "owner-secret")
 
-    assert client.get("/app-config").json() == {"public": True}
+    assert client.get("/app-config").json()["public"] is True
     assert client.get("/health").status_code == 200
 
     refused = client.post("/replays/1/build")

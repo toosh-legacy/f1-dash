@@ -1,9 +1,20 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
   "buildCommand": "node scripts/build-static.js",
   "outputDirectory": "public",
-  "installCommand": "echo no dependencies",
+  "installCommand": "echo no node dependencies",
   "cleanUrls": true,
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 60,
+      "includeFiles": "backend/app/**",
+      "excludeFiles": "{backend/app/static/**,backend/tests/**,backend/.venv/**,backend/archive/**,backend/replays/**,backend/model_artifacts/**,backend/.fastf1_cache/**,backend/.osm_cache/**,backend/*.db*,**/__pycache__/**,node_modules/**,public/**,tests/**,test-results/**,assests/**,frontend/**,.agents/**}"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index" }
+  ],
   "headers": [
     {
       "source": "/config.js",

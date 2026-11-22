@@ -1,0 +1,22 @@
+# Kept out of what `vercel deploy` uploads. A Git deploy only sees committed
+# files anyway; this is for deploys from this machine, where the local data
+# would otherwise go up (and the archive alone is gigabytes).
+backend/.venv
+backend/archive
+backend/replays
+backend/model_artifacts
+backend/.fastf1_cache
+backend/.osm_cache
+backend/*.db
+backend/*.db-*
+backend/.env
+.env
+**/__pycache__
+**/*.pyc
+node_modules
+public
+test-results
+playwright-report
+assests
+.agents
+.claude
