@@ -14,7 +14,12 @@ os.environ.setdefault("F1_MODEL_DIR", str(_TMP / "artifacts"))
 os.environ.setdefault("F1_FASTF1_CACHE", str(_TMP / "cache"))
 # Tests must never start watching OpenF1 for a live session.
 os.environ.setdefault("F1_LIVE_AUTOSTART", "false")
-os.environ.setdefault("F1_OPENF1_USERNAME", "")
+os.environ.setdefault("F1_REPLAY_DIR", str(_TMP / "replays"))
+os.environ.setdefault("F1_ARCHIVE_DIR", str(_TMP / "archive"))
+# Nor read the developer's own credentials out of backend/.env: config only
+# fills variables that are unset, so setting them empty here keeps them out.
+for _secret in ("F1_OPENF1_USERNAME", "F1_OPENF1_PASSWORD", "F1TV_LOGIN_SESSION"):
+    os.environ.setdefault(_secret, "")
 
 from app.db import models as m  # noqa: E402
 from app.db.database import Base, SessionLocal, engine  # noqa: E402
