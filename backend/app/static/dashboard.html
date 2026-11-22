@@ -17,6 +17,14 @@
     <div class="boot-sub">live prediction dashboard</div>
     <div class="boot-bar"><i></i></div>
     <div id="bootStage">tuning the channel</div>
+    <div id="bootHelp" hidden>
+      <p>The API isn&rsquo;t answering. It runs on your machine &mdash; start it and
+        this page connects on its own:</p>
+      <pre><code>cd backend
+.venv/Scripts/python -m uvicorn app.main:app --port 8000</code></pre>
+      <p class="boot-help-note">Looking at <span id="bootApi">http://localhost:8000</span>.
+        On macOS/Linux use <code>.venv/bin/python</code>.</p>
+    </div>
   </div>
 </div>
 

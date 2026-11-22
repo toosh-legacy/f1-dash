@@ -4,7 +4,7 @@
  * opening on, and only then wire the socket.
  */
 
-import { bootDone, bootStage } from "./chrome.js";
+import { bootDone, bootStage, bootWaiting } from "./chrome.js";
 import { detectApi, setEndpoints, setStatus } from "./core.js";
 import { logLine, watchLive } from "./live.js";
 import { openReplay, openUpcoming } from "./map.js";
@@ -12,7 +12,9 @@ import { catalogue, loadRaces, setMode, upcoming } from "./search.js";
 
 (async function start() {
   bootStage("finding the api");
-  setEndpoints(await detectApi());
+  setEndpoints(await detectApi({ onWaiting: bootWaiting }));
+  bootStage("connected");
+  document.getElementById("bootHelp").hidden = true;
 
   bootStage("reading the calendar");
   const { now } = await loadRaces();

@@ -6,8 +6,6 @@ websockets==14.1
 
 # --- persistence ---
 SQLAlchemy==2.0.36
-# Postgres driver: the swap from SQLite is a connection-string change.
-psycopg[binary]==3.2.3
 
 # --- data sources ---
 fastf1==3.4.4
@@ -25,6 +23,3 @@ joblib==1.4.2
 pytest==8.3.4
 pytest-asyncio==0.25.0
 
-# --- object storage ---
-# Model artifacts and replay bundles live in S3 in production.
-boto3==1.35.92

@@ -1,2 +1,3 @@
-// Local default. Vercel's build overwrites this with the API_BASE env var.
+// Empty: the page finds the API itself (same origin, then http://localhost:8000).
+// The Vercel build rewrites this only if DASHBOARD_API_URL is set.
 window.API_BASE = "";

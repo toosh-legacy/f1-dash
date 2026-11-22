@@ -134,8 +134,23 @@ button { cursor: pointer; }
 }
 @keyframes bootSweep { 0% { transform: translateX(-110%); } 100% { transform: translateX(360%); } }
 #bootStage { margin-top: 12px; font-family: var(--mono); font-size: 11.5px; color: var(--dim); min-height: 16px; }
+#bootHelp {
+  margin: 26px auto 0; max-width: 460px; text-align: left;
+  font-size: 13px; line-height: 1.55; color: rgba(235, 240, 248, .8);
+  animation: bootHelpIn .45s var(--ease-out) both;
+}
+#bootHelp p { margin: 0; text-wrap: pretty; }
+#bootHelp pre {
+  margin: 12px 0; padding: 12px 14px; overflow-x: auto;
+  background: rgba(255,255,255,.04); border: 1px solid var(--line); border-radius: 10px;
+  font: 12px/1.6 var(--mono); color: var(--text); user-select: all;
+}
+#bootHelp .boot-help-note { font-size: 11.5px; color: var(--dim); }
+#bootHelp code { font-family: var(--mono); }
+#boot.waiting .boot-bar i { animation-duration: 2.8s; opacity: .5; }
+@keyframes bootHelpIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) {
-  .glitch::before, .glitch::after, .boot-bar i { animation: none; }
+  .glitch::before, .glitch::after, .boot-bar i, #bootHelp { animation: none; }
 }
 
 /* ---------- the island ----------
