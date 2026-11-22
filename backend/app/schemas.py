@@ -163,6 +163,9 @@ class HealthOut(BaseModel):
     active_models: dict[str, int]
     live_loops: int
     pending_jobs: int
+    #: Sessions in the database. Zero means nothing has been seeded yet: the
+    #: dashboard then prefers another API that has data (see core.js).
+    sessions: int = 0
 
     # Operational detail. The counts above say what is configured; these say
     # whether it is working -- how long since each live loop last heard

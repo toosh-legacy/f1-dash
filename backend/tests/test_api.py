@@ -249,3 +249,9 @@ def test_a_refusal_still_carries_cors_so_another_origin_can_read_it(client, monk
     refused = client.post("/replays/1/build", headers={"origin": origin})
     assert refused.status_code == 403
     assert refused.headers.get("access-control-allow-origin") == origin
+
+
+def test_health_counts_sessions_so_the_page_can_skip_an_empty_database(client, seeded):
+    # A fresh hosted database reports 0, and the dashboard then prefers an API
+    # with data (core.js detectApi); a seeded one reports what it has.
+    assert client.get("/health").json()["sessions"] >= 2
