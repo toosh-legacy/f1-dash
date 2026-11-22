@@ -1,9 +1,8 @@
 """Where a built bundle lives, and how it is read back.
 
 A bundle is expensive to build and never changes once a session is over, so it
-is written once as gzipped JSON and cached in three places at once: on disk, in
-a small in-process cache of parsed bundles, and -- in production -- in object
-storage, which is the copy that survives the container.
+is written once as gzipped JSON to disk, and recently used ones are kept parsed
+in a small in-process cache.
 
 The parsed cache is what makes the difference at request time. Unzipping and
 parsing a race is slow enough to be felt, and the dashboard asks for the same
@@ -23,7 +22,6 @@ from app.config import settings
 from app.data.replay.constants import BUNDLE_VERSION, META_FIELDS
 from app.data.replay.narrative import _overtakes
 from app.data.replay.shared import log
-from app.storage import blobs
 
 #: Parsed bundles, least recently used first.
 #:
@@ -54,19 +52,9 @@ def bundle_path(session_key: int) -> Path:
     return settings.REPLAY_DIR / f"session_{session_key}_v{BUNDLE_VERSION}.json.gz"
 
 
-def bundle_key(session_key: int) -> str:
-    """The bundle's name in blob storage -- stable across containers."""
-    return f"replays/session_{session_key}_v{BUNDLE_VERSION}.json.gz"
-
-
 def is_cached(session_key: int) -> bool:
-    """Whether this box can serve the bundle without rebuilding it.
-
-    On the local backend that is a question about disk. On S3 it is a question
-    about the bucket, and a hit fills the disk cache on the way past, so the
-    read that follows is an ordinary file read.
-    """
-    return blobs.exists(bundle_key(session_key), bundle_path(session_key))
+    """Whether the bundle is on disk, so it can be served without rebuilding."""
+    return bundle_path(session_key).exists()
 
 
 def bundle_generation() -> int:
@@ -209,22 +197,21 @@ def bundle_bytes(session_key: int) -> bytes | None:
     """The stored gzip for a built replay, or ``None`` if it is not built here.
 
     Raw bytes rather than the parsed bundle: this is what gets handed to a
-    client, and what gets published so other clients need not rebuild it.
+    client, and what the database copy is made from.
     """
     path = bundle_path(session_key)
-    if not blobs.materialize(bundle_key(session_key), path):
+    if not path.exists():
         return None
     return path.read_bytes()
 
 
 def write_bundle_bytes(session_key: int, data: bytes) -> Path:
-    """Seed the local file cache from a bundle built elsewhere."""
+    """Restore the file from the database copy of a bundle."""
     settings.REPLAY_DIR.mkdir(parents=True, exist_ok=True)
     path = bundle_path(session_key)
     tmp = path.with_suffix(".tmp")
     tmp.write_bytes(data)
     tmp.replace(path)
-    blobs.publish(path, bundle_key(session_key))
     forget_bundle(session_key)
     return path
 
@@ -236,6 +223,5 @@ def _store_bundle(session_key: int, bundle: dict[str, Any]) -> Path:
     with gzip.open(tmp, "wt", encoding="utf-8") as handle:
         json.dump(bundle, handle, separators=(",", ":"))
     tmp.replace(path)
-    blobs.publish(path, bundle_key(session_key))
     forget_bundle(session_key)
     return path

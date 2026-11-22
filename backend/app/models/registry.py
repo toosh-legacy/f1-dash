@@ -24,7 +24,6 @@ from app.db import models as m
 from app.models.base import TabularModel, ValidationReport, score_is_better
 from app.models.qualifying_model import QualifyingAdvancementModel, QualifyingTimeModel
 from app.models.race_model import RaceFinishPositionModel, RaceStrategyModel
-from app.storage import blobs
 
 log = logging.getLogger(__name__)
 
@@ -93,12 +92,11 @@ _loaded: dict[tuple[str, int], TabularModel] = {}
 
 
 def _load_record(record: m.PredictionModel, model_type: str) -> TabularModel:
-    """Load an artifact, fetching it from blob storage if this box lacks it.
+    """Load an artifact from disk, once per process.
 
-    ``artifact_path`` on the row is where the training container put the file.
-    A container that did not do the training has no such file, so the blob store
-    is asked to refill the cache first; on the local backend that check is a
-    plain ``exists()`` and the behaviour is unchanged.
+    ``artifact_path`` on the row is where training wrote the file. If the
+    artifact directory has moved since, the file is looked for where the
+    current settings would put it.
     """
     key = (model_type, record.version)
     cached = _loaded.get(key)
@@ -107,10 +105,10 @@ def _load_record(record: m.PredictionModel, model_type: str) -> TabularModel:
     path = Path(record.artifact_path)
     if not path.exists():
         path = artifact_path(model_type, record.version)
-        if not blobs.materialize(artifact_key(model_type, record.version), path):
+        if not path.exists():
             raise FileNotFoundError(
-                f"artifact for {model_type} v{record.version} is neither on disk "
-                f"({record.artifact_path}) nor in {blobs.describe()}"
+                f"artifact for {model_type} v{record.version} is missing: "
+                f"looked at {record.artifact_path} and {path}"
             )
     model = MODEL_CLASSES[model_type].load(path)
     _loaded[key] = model
@@ -160,11 +158,6 @@ def clear_model_cache() -> None:
 # -- registration + gate -----------------------------------------------------
 
 
-def artifact_key(model_type: str, version: int) -> str:
-    """The artifact's name in blob storage -- stable across containers."""
-    return f"models/{model_type}_v{version}.joblib"
-
-
 def artifact_path(model_type: str, version: int) -> Path:
     return settings.MODEL_ARTIFACT_DIR / f"{model_type}_v{version}.joblib"
 
@@ -188,7 +181,6 @@ def register(
     version = next_version(db, model_type)
     path = artifact_path(model_type, version)
     model.save(path)
-    blobs.publish(path, artifact_key(model_type, version))
 
     record = m.PredictionModel(
         model_type=model_type,
