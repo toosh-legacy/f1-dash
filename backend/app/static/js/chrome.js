@@ -133,9 +133,20 @@ function bootStage(text) {
   if (node) node.textContent = text;
 }
 
+/** The API is not answering yet: say how to start it, and keep the screen up. */
+function bootWaiting(base) {
+  const boot = el("boot");
+  if (!boot) return;
+  boot.classList.add("waiting");
+  el("bootHelp").hidden = false;
+  el("bootApi").textContent = base;
+  bootStage("waiting for the api");
+}
+
 function bootDone() {
   const boot = el("boot");
   if (!boot || boot.classList.contains("done")) return;
+  boot.classList.remove("waiting");
   boot.classList.add("done");
   setTimeout(() => {
     if (bootField) { bootField.stop(); bootField = null; }
@@ -143,12 +154,14 @@ function bootDone() {
   }, 800);
 }
 
-// However badly the start goes, the page is not left behind the static.
-setTimeout(bootDone, 12000);
+// However badly the start goes, the page is not left behind the static --
+// unless it is waiting on purpose for the API to be started.
+setTimeout(() => { if (!el("boot")?.classList.contains("waiting")) bootDone(); }, 12000);
 
 export {
   bootDone,
   bootField,
+  bootWaiting,
   bootStage,
   setBackgroundAwake,
   staticField,

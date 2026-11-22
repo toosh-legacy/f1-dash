@@ -24,15 +24,41 @@ export function setEndpoints(base) {
   endpoint.ws = base.replace(/^http/, "ws");
 }
 
-async function detectApi() {
-  const candidates = endpoint.api ? [endpoint.api] : [location.origin + "/api", location.origin];
-  for (const base of candidates) {
-    try {
-      const response = await fetch(`${base.replace(/\/$/, "")}/health`);
-      if (response.ok) return base.replace(/\/$/, "");
-    } catch (_) { /* try the next one */ }
+/** Where the API runs when nothing else says: the developer's own machine. */
+const LOCAL_API = "http://localhost:8000";
+const RETRY_MS = 2500;
+
+async function answers(base) {
+  try {
+    const response = await fetch(`${base}/health`, { cache: "no-store" });
+    if (!response.ok) return false;
+    const body = await response.json();
+    return body && typeof body === "object";
+  } catch (_) {
+    return false;
   }
-  return location.origin;
+}
+
+/** Find the API, waiting for it to start if it is not up yet.
+ *
+ * `?api=` or `window.API_BASE` names it outright. Otherwise the same origin
+ * is tried first (FastAPI serving the page, or the Node dev proxy at /api),
+ * then the API on localhost -- which is how the copy hosted on Vercel finds
+ * the API running on the viewer's machine. Nothing answering is not an
+ * error: `onWaiting` is told, and the search repeats until one does.
+ */
+async function detectApi({ onWaiting } = {}) {
+  const named = (endpoint.api || "").replace(/\/$/, "");
+  const candidates = named
+    ? [named]
+    : [...new Set([location.origin + "/api", location.origin, LOCAL_API])];
+  for (;;) {
+    for (const base of candidates) {
+      if (await answers(base)) return base;
+    }
+    if (onWaiting) onWaiting(candidates[candidates.length - 1]);
+    await new Promise((resolve) => setTimeout(resolve, RETRY_MS));
+  }
 }
 
 async function api(path, options) {

@@ -2,9 +2,14 @@
 /**
  * Assembles the Vercel output directory.
  *
- * The dashboard has no build step (guide section 3), so "building" is two
- * moves: copy the page into `public/`, and write the one thing that differs
- * between a laptop and production -- where the API lives.
+ * The dashboard has no build step (guide section 3), so "building" is a copy
+ * of the page into `public/`. The hosted page talks to the API running on the
+ * viewer's own machine (http://localhost:8000), which it finds by itself, so
+ * nothing about the API is baked in.
+ *
+ * DASHBOARD_API_URL overrides that for a build that should point elsewhere.
+ * The old API_BASE variable is deliberately ignored: it named the retired
+ * AWS host, and a leftover copy in Vercel's settings must not resurrect it.
  */
 "use strict";
 
@@ -15,7 +20,7 @@ const ROOT = path.join(__dirname, "..");
 const SOURCE = path.join(ROOT, "backend", "app", "static");
 const OUT = path.join(ROOT, "public");
 
-const apiBase = (process.env.API_BASE || "").replace(/\/$/, "");
+const apiBase = (process.env.DASHBOARD_API_URL || "").replace(/\/$/, "");
 
 fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
@@ -34,10 +39,10 @@ function copyInto(from, to) {
 copyInto(SOURCE, OUT);
 fs.copyFileSync(path.join(OUT, "dashboard.html"), path.join(OUT, "index.html"));
 
-// Empty is legitimate: the page then falls back to same-origin detection.
+// Empty is the normal case: the page then looks for the API itself.
 fs.writeFileSync(
   path.join(OUT, "config.js"),
   `window.API_BASE = ${JSON.stringify(apiBase)};\n`
 );
 
-console.log(apiBase ? `static built, API_BASE=${apiBase}` : "static built, API_BASE unset (same-origin fallback)");
+console.log(apiBase ? `static built, API at ${apiBase}` : "static built, API found at runtime (same origin, then localhost:8000)");
