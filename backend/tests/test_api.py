@@ -188,6 +188,30 @@ class TestModels:
         assert client.post("/models/999999/promote").status_code == 404
 
 
+def test_the_vercel_dashboard_may_call_the_local_api(client):
+    origin = "https://f1-dash-backend.vercel.app"
+    allowed = client.get("/health", headers={"origin": origin})
+    assert allowed.headers.get("access-control-allow-origin") == origin
+    # Any other site the viewer has open may not.
+    other = client.get("/health", headers={"origin": "https://someone-else.vercel.app"})
+    assert other.headers.get("access-control-allow-origin") is None
+
+
+def test_a_private_network_preflight_is_answered_for_allowed_origins_only(client):
+    def preflight(origin):
+        return client.options("/health", headers={
+            "origin": origin,
+            "access-control-request-method": "GET",
+            "access-control-request-private-network": "true",
+        })
+
+    ok = preflight("https://f1-dash-backend.vercel.app")
+    assert ok.status_code == 200
+    assert ok.headers.get("access-control-allow-private-network") == "true"
+    assert preflight("https://someone-else.example").headers.get(
+        "access-control-allow-private-network") is None
+
+
 def test_a_public_deployment_is_read_only_except_to_its_owner(client, monkeypatch):
     from app.config import settings
 

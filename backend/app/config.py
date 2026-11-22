@@ -116,16 +116,23 @@ class Settings:
     REPLAY_FRAME_HZ: float = float(os.getenv("F1_REPLAY_HZ", "1"))
 
     # --- Public demo --------------------------------------------------------
-    # A public deployment is read-only: anyone may watch what is already
-    # built, nobody may build, retrain, promote or delete -- except a request
-    # carrying ADMIN_TOKEN in an ``X-Admin-Token`` header, which is how the
-    # owner still builds replays on the server.
+    # Off by default. When on, the API is read-only: anyone may watch what is
+    # already built, nobody may build, retrain, promote or delete -- except a
+    # request carrying ADMIN_TOKEN in an ``X-Admin-Token`` header. Turn it on
+    # before exposing this API beyond your own machine.
     PUBLIC_MODE: bool = os.getenv("F1_PUBLIC_MODE", "false").lower() == "true"
     ADMIN_TOKEN: str = os.getenv("F1_ADMIN_TOKEN", "").strip()
 
     # --- API ----------------------------------------------------------------
     CORS_ORIGINS: list[str] = [
-        o.strip() for o in os.getenv("F1_CORS_ORIGINS", "http://localhost:3000").split(",") if o.strip()
+        o.strip()
+        for o in os.getenv(
+            "F1_CORS_ORIGINS",
+            # The Node dev server, and the dashboard hosted on Vercel, which
+            # calls this API on localhost from the viewer's own browser.
+            "http://localhost:3000,http://127.0.0.1:3000,https://f1-dash-backend.vercel.app",
+        ).split(",")
+        if o.strip()
     ]
 
     def ensure_dirs(self) -> None:

@@ -111,6 +111,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def allow_private_network(request: Request, call_next):
+    """Answer Chrome's Private Network Access preflight.
+
+    The dashboard hosted on Vercel calls this API at http://localhost:8000
+    from the viewer's own browser. A public page asking a loopback address is
+    a "private network request": Chrome adds
+    ``Access-Control-Request-Private-Network`` to the preflight and drops the
+    request unless the answer opts in. Only origins CORS already allows get
+    the opt-in. Registered after CORS so it wraps it and sees its reply.
+    """
+    response = await call_next(request)
+    if (
+        request.headers.get("access-control-request-private-network") == "true"
+        and response.headers.get("access-control-allow-origin")
+    ):
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
+    return response
+
+
 @app.get("/app-config", include_in_schema=False)
 def app_config() -> dict:
     """What the page needs to know about this deployment before it draws."""
