@@ -36,6 +36,35 @@ def _load_dotenv(path: Path) -> None:
 
 _load_dotenv(PROJECT_ROOT / ".env")
 
+#: Running as a Vercel function: read-only code directory, a writable /tmp
+#: that does not outlive the instance, and no process that stays up between
+#: requests. Everything durable then lives in the database.
+SERVERLESS: bool = bool(os.getenv("VERCEL")) or os.getenv("F1_SERVERLESS", "").lower() == "true"
+#: Where files that are only a cache go: the project directory locally, /tmp
+#: on a function.
+DATA_ROOT: Path = Path("/tmp/f1") if SERVERLESS else PROJECT_ROOT
+
+
+def _database_url() -> str:
+    """The database to use, and the driver to reach it with.
+
+    ``F1_DATABASE_URL`` wins. Otherwise the variables Vercel's Neon
+    integration injects are used, so attaching the database to the project is
+    the whole of the setup. Providers hand out ``postgres://`` or
+    ``postgresql://``, which SQLAlchemy maps to psycopg2; psycopg 3 is what is
+    installed, so the scheme is rewritten to name it.
+    """
+    url = (
+        os.getenv("F1_DATABASE_URL")
+        or os.getenv("DATABASE_URL")
+        or os.getenv("POSTGRES_URL")
+        or f"sqlite:///{PROJECT_ROOT / 'f1_dashboard.db'}"
+    )
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix):]
+    return url
+
 
 class Settings:
     """Runtime settings, sourced from the environment with development-safe defaults."""
@@ -43,7 +72,8 @@ class Settings:
     # --- Core ---------------------------------------------------------------
     # Avoid SQLite-only features anywhere in the codebase: swapping to Postgres
     # must stay a connection-string change (guide 3).
-    DATABASE_URL: str = os.getenv("F1_DATABASE_URL", f"sqlite:///{PROJECT_ROOT / 'f1_dashboard.db'}")
+    DATABASE_URL: str = _database_url()
+    SERVERLESS: bool = SERVERLESS
     ENV: str = os.getenv("F1_ENV", "development")
     LOG_LEVEL: str = os.getenv("F1_LOG_LEVEL", "INFO")
 
@@ -53,7 +83,7 @@ class Settings:
     CURRENT_SEASON: int = int(os.getenv("F1_SEASON", "2026"))
 
     # --- Data sources -------------------------------------------------------
-    FASTF1_CACHE_DIR: Path = Path(os.getenv("F1_FASTF1_CACHE", str(PROJECT_ROOT / ".fastf1_cache")))
+    FASTF1_CACHE_DIR: Path = Path(os.getenv("F1_FASTF1_CACHE", str(DATA_ROOT / ".fastf1_cache")))
     OPENF1_BASE_URL: str = os.getenv("F1_OPENF1_URL", "https://api.openf1.org/v1")
     OPENF1_TIMEOUT_S: float = float(os.getenv("F1_OPENF1_TIMEOUT", "10"))
     # A paid OpenF1 account. Without one the API works between sessions only:
@@ -74,7 +104,7 @@ class Settings:
     # positions included) and its archive of past sessions. Lasts a few days.
     F1TV_LOGIN_SESSION: str = os.getenv("F1TV_LOGIN_SESSION", "").strip()
     # Where the raw F1 archive is backed up to (scripts/backup_f1_archive.py).
-    F1_ARCHIVE_DIR: Path = Path(os.getenv("F1_ARCHIVE_DIR", str(PROJECT_ROOT / "archive")))
+    F1_ARCHIVE_DIR: Path = Path(os.getenv("F1_ARCHIVE_DIR", str(DATA_ROOT / "archive")))
 
     @property
     def openf1_authenticated(self) -> bool:
@@ -83,7 +113,10 @@ class Settings:
     # --- Live sessions ------------------------------------------------------
     # Watch OpenF1 for a session going live and start following it unprompted:
     # the loops, the position feed, and the replay build once it has finished.
-    LIVE_AUTOSTART: bool = os.getenv("F1_LIVE_AUTOSTART", "true").lower() == "true"
+    # Never on a function: nothing stays up between requests to watch.
+    LIVE_AUTOSTART: bool = os.getenv(
+        "F1_LIVE_AUTOSTART", "false" if SERVERLESS else "true"
+    ).lower() == "true"
     LIVE_WATCH_INTERVAL_S: float = float(os.getenv("F1_LIVE_WATCH_INTERVAL", "60"))
     # How often car positions are pulled while a session runs. OpenF1 itself
     # lags the track by about three seconds, so faster than this buys nothing.
@@ -99,7 +132,7 @@ class Settings:
     RACE_CONTROL_POLL_INTERVAL_S: float = float(os.getenv("F1_RC_POLL_INTERVAL", "2"))
 
     # --- Model registry -----------------------------------------------------
-    MODEL_ARTIFACT_DIR: Path = Path(os.getenv("F1_MODEL_DIR", str(PROJECT_ROOT / "model_artifacts")))
+    MODEL_ARTIFACT_DIR: Path = Path(os.getenv("F1_MODEL_DIR", str(DATA_ROOT / "model_artifacts")))
     # A new version must beat the active one by at least this margin to be
     # considered an improvement by the validation gate (rule 2).
     VALIDATION_MIN_IMPROVEMENT: float = float(os.getenv("F1_VALIDATION_MARGIN", "0.0"))
@@ -110,7 +143,7 @@ class Settings:
     # --- Replays ------------------------------------------------------------
     # Built replay bundles are large and immutable, so they live on disk rather
     # than in the database and are served straight from the cache.
-    REPLAY_DIR: Path = Path(os.getenv("F1_REPLAY_DIR", str(PROJECT_ROOT / "replays")))
+    REPLAY_DIR: Path = Path(os.getenv("F1_REPLAY_DIR", str(DATA_ROOT / "replays")))
     # Playback frame rate. 1 Hz keeps a two-hour race under a few MB; the
     # dashboard interpolates between frames for smooth motion.
     REPLAY_FRAME_HZ: float = float(os.getenv("F1_REPLAY_HZ", "1"))
@@ -134,6 +167,18 @@ class Settings:
         ).split(",")
         if o.strip()
     ]
+
+    # --- Background jobs ----------------------------------------------------
+    # "thread": run in this process (a laptop, a long-lived server).
+    # "github": record the job in the database and start the GitHub Actions
+    # worker (.github/workflows/worker.yml) to run it -- for a function, which
+    # cannot keep working after it has answered.
+    JOB_RUNNER: str = os.getenv("F1_JOB_RUNNER", "github" if SERVERLESS else "thread").strip().lower()
+    GITHUB_REPO: str = os.getenv("F1_GITHUB_REPO", "toosh-legacy/f1-dash").strip()
+    GITHUB_WORKFLOW: str = os.getenv("F1_GITHUB_WORKFLOW", "worker.yml").strip()
+    GITHUB_REF: str = os.getenv("F1_GITHUB_REF", "main").strip()
+    # Fine-grained token, this repository only, Actions: read and write.
+    GITHUB_DISPATCH_TOKEN: str = os.getenv("GITHUB_DISPATCH_TOKEN", "").strip()
 
     def ensure_dirs(self) -> None:
         self.FASTF1_CACHE_DIR.mkdir(parents=True, exist_ok=True)
