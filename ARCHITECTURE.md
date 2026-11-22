@@ -4,7 +4,7 @@ What this system is, how the parts fit, and why each one is shaped the way it is
 — with the video you'd watch to understand each piece, next to the piece itself.
 
 - The specification is `guide.md`. It is the authority on *what* is built.
-- `README.md` covers running it. `DEPLOY.md` covers shipping it.
+- `README.md` covers running it, and where it runs.
 - This file covers how it is put together, and how to learn it.
 
 Every section ends with a **▶ Learn it** block: videos for the technology that
@@ -64,8 +64,8 @@ Everything else in the codebase is downstream of this split.
         └──────┬───────┴────────┬───────┴────────┬────────┴───────┬───────┘
                ▼                ▼                ▼                ▼
           OpenF1 REST        fastf1        model artifacts     SQLAlchemy 2
-        live state + X/Y   completed        (.joblib)        SQLite → Postgres
-                            sessions       via storage/blobs.py → S3
+        live state + X/Y   completed        (.joblib)            SQLite
+                            sessions        on local disk
 ```
 
 Threads publish to the browser through one crossing only:
@@ -253,16 +253,11 @@ This is the single most important piece of judgment in the project.
 ## 11. Storage — `app/db/`, `app/storage/`
 
 - `database.py` is the only module that knows which engine it is. No SQLite-only
-  features anywhere, so Postgres is a connection-string change — and `config.py`
-  rewrites `postgres://` / `postgresql://` to `postgresql+psycopg://`, because
-  managed hosts hand out a scheme pointing at a driver that isn't installed.
+  features anywhere, so Postgres would be a connection-string change (plus its
+  driver).
 - `models.py` — every `Session` carries a `regs_regime`; every `PredictionModel`
   records the regime it was trained under. Structural, not conventional.
 - `projection_store.py`, `replay_store.py`, `session_index.py` — caches and indexes.
-- `storage/blobs.py` — a **mirror**, not a filesystem abstraction. Callers keep
-  writing and reading local paths and bracket them with `publish()` after a write
-  and `materialize()` before a read. `local` makes both no-ops; `s3` turns local
-  disk into a cache in front of a bucket that a cold container refills on first use.
 
 > **▶ Learn it — SQLAlchemy 2.0**
 > Specifically **2.0 style**: `Mapped[]` / `mapped_column`, `select()`,
@@ -312,7 +307,7 @@ CDN would) and proxies `/api/*` plus the WebSocket upgrade in development.
 search.js → GET /replays                       (catalogue: built? / buildable? / upcoming?)
          → POST /replays/{key}/build           → JobOut, returns immediately
             job pool → build.py → OpenF1 → geometry → frames → narrative
-                     → store.py: gzip to disk + blobs.publish() → DB row
+                     → store.py: gzip to disk → DB row
          → GET /replays/{key}/meta + /frames   (served gzipped, cache 1 day — a built bundle never changes)
          → map.js draws circuit once, then transforms per rAF tick
          → POST /replays/{key}/predict         → replay_predictor evaluates every lap into projection_store
@@ -348,23 +343,17 @@ after the session ends: POST /sessions/{id}/retrain → job pool → label → a
 >
 > **Unlocks:** `backend/tests/`, `tests/e2e/`, the `conftest.py` fixtures
 
-## 15. Deployment
+## 15. Where it runs
 
-Split across two hosts, forced by what the backend does rather than by taste:
-the static page on **Vercel**, the API container on **Render** (WebSockets held
-open, background training threads, ~1 GB of ML wheels — past Vercel's 250 MB
-function cap), rows in **Render Postgres**, artifacts and bundles in **S3** (or
-any S3-compatible endpoint via `F1_S3_ENDPOINT_URL`). The Render disk is a warm
-cache; losing it costs a download, not data. Full walkthrough in `DEPLOY.md`.
+On one machine. The API, SQLite, model artifacts and replay bundles are all
+local; nothing is on the public internet. The static page is also hosted on
+**Vercel**, and that copy calls `http://localhost:8000` from the viewer's
+browser: `core.js` `detectApi()` tries the page's own origin, then localhost,
+and waits — showing how to start the API — until one answers. On the API side
+`F1_CORS_ORIGINS` names the Vercel origin and `main.py` answers Chrome's
+Private Network Access preflight for allowed origins only.
 
-> **▶ Learn it — Docker and deployment**
-> Layer caching matters here: ~1 GB of ML wheels means a badly ordered Dockerfile
-> costs minutes on every push.
-> - [This Is How You Write an Efficient Python Dockerfile](https://www.youtube.com/watch?v=tc713anE3UY) — layer ordering, exactly the constraint here
-> - [Docker Tutorial for Beginners — Containerize Python Applications](https://www.youtube.com/watch?v=bi0cKgmRuiA)
-> - [Docker Tutorial for Beginners — Full DevOps Course](https://www.youtube.com/watch?v=fqMOX6JJhGo) — the long one, if Docker is new
->
-> **Unlocks:** `backend/Dockerfile`, `render.yaml`, `vercel.json`, `scripts/build-static.js`, `storage/blobs.py`, `DEPLOY.md`
+> **Unlocks:** `vercel.json`, `scripts/build-static.js`, `core.js` (`detectApi`), `main.py` (CORS)
 
 ---
 
@@ -372,7 +361,7 @@ cache; losing it costs a download, not data. Full walkthrough in `DEPLOY.md`.
 
 **The whole thing, in dependency order.** Sections 2–3 (concurrency) and 4
 (FastAPI) are the backbone; 5–9 are the prediction half; 10–11 the serving and
-storage; 12 the browser; 14–15 make it shippable.
+storage; 12 the browser; 14–15 test it and run it.
 
 **Just changing a feature or a model?** Sections 7 → 8 → 9, then read
 `features/transfer.py` and `models/registry.py` directly. The gradient-boosting

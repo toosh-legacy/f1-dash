@@ -106,9 +106,9 @@ npm start          # http://localhost:3000, proxies /api to the backend
 npm run smoke      # end-to-end check: API, dashboard, WebSocket
 ```
 
-The API also serves the dashboard directly at <http://localhost:8000/>. The Node server exists so
-the frontend can live on its own origin — as it would behind a CDN — and to proxy the WebSocket
-upgrade in development.
+The API also serves the dashboard directly at <http://localhost:8000/>, and the hosted copy at
+<https://f1-dash-backend.vercel.app> uses the same local API (see [Where it runs](#where-it-runs)).
+The Node server serves the page on its own origin and proxies the API and the WebSocket upgrade.
 
 ## Watching a session live
 
@@ -505,32 +505,37 @@ recorded race still look right".
   race can run strategies absent from a corpus this small; the validation detail reports
   `unseen_labels` so the number is read in context.
 
-## Deployment
+## Where it runs
 
-**Live demo:** <https://f1-dash-backend.vercel.app> (read-only; served when the AWS instance is running).
-
-The page is on **Vercel**. The API runs on one EC2 instance on AWS, with **Caddy** in front
-for HTTPS. Full design, security model and runbook: [`DEPLOY-AWS.md`](DEPLOY-AWS.md).
+Everything runs on your own machine. The one hosted piece is a copy of the
+page on **Vercel** — <https://f1-dash-backend.vercel.app> — and that copy
+talks to the API on *your* localhost, from your browser:
 
 ```
-browser ──▶ Vercel CDN (static page, API_BASE)
-   └──────https/wss──▶ Caddy (:443, Let's Encrypt) ──▶ f1-api (FastAPI, one worker)
-                                                          │  SQLite + caches on EBS
-                                                          ├─▶ S3: models, replays (prod/)
-                                                          └─▶ SSM: settings and secrets
+your browser ──▶ Vercel (static page: HTML, CSS, ES modules — no build step)
+      │
+      └──http/ws──▶ http://localhost:8000  (FastAPI on your machine)
+                      ├─ SQLite              backend/f1_dashboard.db
+                      ├─ models, replays     backend/model_artifacts/, backend/replays/
+                      └─▶ OpenF1 · FastF1 · F1 live timing
 ```
 
-- **One container on purpose.** The live loops, job queue and WebSocket
-  broadcaster live in the process, so a second replica would duplicate them.
-- **Public, but read-only.** `F1_PUBLIC_MODE=true` refuses every write at one
-  middleware unless the request carries `X-Admin-Token`, so anyone can watch and
-  nobody can retrain or delete.
-- **No keys anywhere.** The instance uses an IAM role, shell access is SSM
-  Session Manager (no SSH), and secrets are SSM SecureString parameters.
-- **One-command deploys.** `scripts/deploy-aws.sh` ships the committed `HEAD` and
-  runs `deploy/aws/f1-deploy.sh` on the instance over SSM.
-- **Cost.** About $68/month running, and $6/month stopped. It is kept stopped
-  between demos.
+- **Open the page, then start the API, in either order.** The page looks for the
+  API on its own origin, then on `localhost:8000`. If neither answers it shows
+  the command to start one and connects by itself the moment it does.
+- **Nothing is exposed.** The API is never on the public internet. It allows the
+  Vercel origin by CORS and answers Chrome's Private Network Access preflight
+  for that origin only, so other sites you have open cannot drive it. Chrome
+  may ask once to let the page reach devices on your local network: allow it.
+  Safari blocks an `https` page from calling `http://localhost`; use
+  <http://localhost:8000/> there instead.
+- **Vercel settings.** `vercel.json` runs `scripts/build-static.js`, which copies
+  `backend/app/static/` into `public/`. No environment variables are needed;
+  `DASHBOARD_API_URL` points the build at a different API if you ever want one.
+  An old `API_BASE` variable left in the project settings is ignored.
+
+The same page is served locally too, at <http://localhost:8000/> by FastAPI or
+<http://localhost:3000/> by `npm start`.
 
 ## Configuration
 
