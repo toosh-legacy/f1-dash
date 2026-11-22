@@ -25,6 +25,9 @@ class _FakeOpenF1:
 def _empty_cache(monkeypatch, tmp_path):
     # Windows are kept on disk as well as in memory; give each test its own.
     monkeypatch.setattr(telemetry.settings, "REPLAY_DIR", tmp_path)
+    # Windows are also kept in the shared test database now; a key unique to
+    # the test keeps one test's window from answering another's.
+    monkeypatch.setattr(telemetry, "CACHE_VERSION", f"test-{tmp_path.name}")
     telemetry._cache.clear()
     yield
     telemetry._cache.clear()

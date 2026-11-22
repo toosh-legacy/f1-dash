@@ -4,6 +4,15 @@ A bundle is expensive to build and never changes once a session is over, so it
 is written once as gzipped JSON to disk, and recently used ones are kept parsed
 in a small in-process cache.
 
+The file is only a cache of the database's copy (``replay_bundles``, see
+:mod:`app.db.replay_store`): on a Vercel function the disk is a per-instance
+``/tmp`` that starts empty. So every read here -- :func:`is_cached`,
+:func:`load_bundle`, :func:`bundle_bytes` -- treats a missing file as "fetch the
+shared copy", not as "not built". Bundles deliberately do not go through the
+generic file store in :mod:`app.storage.files`: ``replay_bundles`` already
+holds them, with catalogue metadata beside the blob, and storing them twice
+would only double the database.
+
 The parsed cache is what makes the difference at request time. Unzipping and
 parsing a race is slow enough to be felt, and the dashboard asks for the same
 race repeatedly, so recently used bundles stay in memory and the halves the
@@ -14,6 +23,7 @@ from __future__ import annotations
 import gzip
 import json
 import threading
+import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any
@@ -52,9 +62,90 @@ def bundle_path(session_key: int) -> Path:
     return settings.REPLAY_DIR / f"session_{session_key}_v{BUNDLE_VERSION}.json.gz"
 
 
+#: How long the list of bundles in the database is trusted. ``is_cached`` is
+#: asked once per row of the session index, so it must not be a query per call.
+SHARED_KEYS_TTL_S = 30.0
+_shared_keys: tuple[float, frozenset[int]] | None = None
+_hydrate_locks: dict[int, threading.Lock] = {}
+
+
 def is_cached(session_key: int) -> bool:
-    """Whether the bundle is on disk, so it can be served without rebuilding."""
-    return bundle_path(session_key).exists()
+    """Whether the bundle can be served without rebuilding.
+
+    True if the file is on disk, or if the database holds a build of the
+    current format that :func:`load_bundle` / :func:`bundle_bytes` will fetch
+    on first read. Never downloads a payload.
+    """
+    return bundle_path(session_key).exists() or session_key in _shared_session_keys()
+
+
+def _shared_session_keys() -> frozenset[int]:
+    """Session keys with a bundle in ``replay_bundles``, cached briefly."""
+    global _shared_keys
+    now = time.monotonic()
+    held = _shared_keys
+    if held is not None and now - held[0] < SHARED_KEYS_TTL_S:
+        return held[1]
+    # Imported late: app.db.replay_store imports this package.
+    from sqlalchemy import select
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.db import models as m
+    from app.db.database import session_scope
+
+    try:
+        with session_scope() as db:
+            found = frozenset(
+                db.scalars(
+                    select(m.ReplayBundle.openf1_session_key).where(
+                        m.ReplayBundle.version == BUNDLE_VERSION
+                    )
+                ).all()
+            )
+    except SQLAlchemyError as exc:  # no database is the same as no shared builds
+        log.warning("could not list shared replay bundles: %s", exc)
+        return frozenset()
+    _shared_keys = (now, found)
+    return found
+
+
+def _hydrate(session_key: int) -> bool:
+    """Fetch the database's copy of a bundle into the file cache.
+
+    True if the file is now on disk. One download per bundle however many
+    requests ask at once: a race is half a megabyte, and a fresh instance is
+    typically asked for the meta and frames halves in the same instant.
+    """
+    path = bundle_path(session_key)
+    if path.exists():
+        return True
+    with _BUNDLE_LOCK:
+        lock = _hydrate_locks.setdefault(session_key, threading.Lock())
+    with lock:
+        if path.exists():
+            return True
+        from sqlalchemy import select
+        from sqlalchemy.exc import SQLAlchemyError
+
+        from app.db import models as m
+        from app.db.database import session_scope
+
+        try:
+            with session_scope() as db:
+                payload = db.scalar(
+                    select(m.ReplayBundle.payload).where(
+                        m.ReplayBundle.openf1_session_key == session_key,
+                        m.ReplayBundle.version == BUNDLE_VERSION,
+                    )
+                )
+        except SQLAlchemyError as exc:
+            log.warning("could not fetch shared replay %s: %s", session_key, exc)
+            return False
+        if payload is None:
+            return False
+        write_bundle_bytes(session_key, payload)
+        log.info("hydrated replay %s from the database", session_key)
+        return True
 
 
 def bundle_generation() -> int:
@@ -100,7 +191,7 @@ def load_bundle(session_key: int, *, use_cache: bool = True) -> dict[str, Any] |
                 return hit
 
     path = bundle_path(session_key)
-    if not path.exists():
+    if not _hydrate(session_key):
         return None
     try:
         with gzip.open(path, "rt", encoding="utf-8") as handle:
@@ -197,12 +288,12 @@ def bundle_bytes(session_key: int) -> bytes | None:
     """The stored gzip for a built replay, or ``None`` if it is not built here.
 
     Raw bytes rather than the parsed bundle: this is what gets handed to a
-    client, and what the database copy is made from.
+    client, and what the database copy is made from. A file this instance does
+    not have is fetched from the database first.
     """
-    path = bundle_path(session_key)
-    if not path.exists():
+    if not _hydrate(session_key):
         return None
-    return path.read_bytes()
+    return bundle_path(session_key).read_bytes()
 
 
 def write_bundle_bytes(session_key: int, data: bytes) -> Path:

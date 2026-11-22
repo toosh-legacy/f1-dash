@@ -16,7 +16,8 @@ For a circuit with a built replay this
      many starting angles, mirror allowed,
   4. carries every feature worth drawing through that transform into the
      feed's frame, simplified, and
-  5. writes app/data/circuits/<slug>.json, served by GET /circuits/{name}/map.
+  5. writes <slug>.json to the circuits cache directory (app/data/circuits/
+     locally) and the durable file store, served by GET /circuits/{name}/map.
 
 It runs by itself after every replay build (``ensure_map``), on demand when
 the dashboard asks for a circuit nobody has mapped, and from the command line:
@@ -42,11 +43,16 @@ from typing import Any
 import numpy as np
 from scipy.spatial import cKDTree
 
+from app.config import settings
+from app.storage import files
+
 log = logging.getLogger(__name__)
 
 HERE = Path(__file__).resolve().parent
 BACKEND = HERE.parents[2]
-CACHE = BACKEND / ".osm_cache"
+#: Raw OpenStreetMap downloads. Beside the code locally; on a function the code
+#: directory is read-only, so under ``DATA_ROOT`` in ``/tmp`` instead.
+CACHE = (settings.DATA_ROOT / ".osm_cache") if settings.SERVERLESS else BACKEND / ".osm_cache"
 USER_AGENT = "f1-dash circuit maps (personal project)"
 
 #: Where each venue is, by the feed's circuit name: the middle of the track,
@@ -147,7 +153,7 @@ def fetch(name: str, box: tuple[float, float, float, float], depth: int = 0) -> 
     The API refuses an area with too many nodes (a city around a street
     circuit); then the box is split in four and each quarter asked for."""
     south, west, north, east = box
-    CACHE.mkdir(exist_ok=True)
+    CACHE.mkdir(parents=True, exist_ok=True)
     path = CACHE / f"{name}-{south:.4f}_{west:.4f}_{north:.4f}_{east:.4f}.osm.gz"
     if path.exists():
         return [gzip.decompress(path.read_bytes())]
@@ -446,8 +452,22 @@ def build(circuit: str, track: dict[str, Any], source: str = "", country: str | 
 
 
 def write(data: dict) -> Path:
-    path = HERE / f"{slug(data['circuit'])}.json"
-    path.write_text(json.dumps(data, separators=(",", ":")))
+    """Write a map where lookups find it, and make it durable.
+
+    The file goes to the package's cache directory -- this directory locally,
+    ``/tmp`` on a function -- and its bytes to the file store under
+    ``circuits/<slug>.json``, so an instance that never built it, or this one
+    after a restart, fetches it instead of mapping the circuit again.
+    """
+    from app.data import circuits   # the package; imported late to avoid a cycle
+
+    name = slug(data["circuit"])
+    path = circuits.CACHE_DIR / f"{name}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, separators=(",", ":")))
+    tmp.replace(path)
+    files.publish(path, circuits.store_key(name))
     return path
 
 
