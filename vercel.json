@@ -9,20 +9,33 @@
     "api/index.py": {
       "maxDuration": 60,
       "includeFiles": "backend/app/**",
-      "excludeFiles": "{backend/app/static/**,backend/tests/**,backend/.venv/**,backend/archive/**,backend/replays/**,backend/model_artifacts/**,backend/.fastf1_cache/**,backend/.osm_cache/**,backend/*.db*,**/__pycache__/**,node_modules/**,public/**,tests/**,test-results/**,assests/**,frontend/**,.agents/**}"
+      "excludeFiles": "{backend/app/static/**,backend/tests/**,**/__pycache__/**,public/**,tests/**,node_modules/**,.agents/**,assests/**,frontend/**}"
     }
   },
   "rewrites": [
-    { "source": "/api/:path*", "destination": "/api/index" }
+    {
+      "source": "/api/:path*",
+      "destination": "/api/index"
+    }
   ],
   "headers": [
     {
       "source": "/config.js",
-      "headers": [{ "key": "cache-control", "value": "no-store" }]
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "no-store"
+        }
+      ]
     },
     {
       "source": "/index.html",
-      "headers": [{ "key": "cache-control", "value": "no-store" }]
+      "headers": [
+        {
+          "key": "cache-control",
+          "value": "no-store"
+        }
+      ]
     }
   ]
 }
